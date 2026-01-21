@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 # langgraph imports
 from langgraph.graph import StateGraph, START, END
 
-from src.state.poster_state import create_state, PosterState
+from src.state.poster_state import create_state, PosterState, _get_model_config
 from src.agents.parser import parser_node
 from src.agents.curator import curator_node
 from src.agents.layout_with_balancer import layout_with_balancer_node as layout_optimizer_node
@@ -87,24 +87,41 @@ def main():
     else:
         print(f"❌ .env file NOT found")
     
-    # check api keys
-    required_keys = {"openai": "OPENAI_API_KEY", "anthropic": "ANTHROPIC_API_KEY", "google": "GOOGLE_API_KEY", "zhipu": "ZHIPU_API_KEY", "moonshot": "MOONSHOT_API_KEY", "Minimax": "MINIMAX_API_KEY", "Alibaba": "ALIBABA_API_KEY"}
-    model_providers = {"claude-sonnet-4-20250514": "anthropic", "gemini": "google", "gemini-2.5-pro": "google",
-                      "gpt-4o-2024-08-06": "openai", "gpt-4.1-2025-04-14": "openai", "gpt-4.1-mini-2025-04-14": "openai",
-                      "glm-4.6": "zhipu", "glm-4.5": "zhipu", "glm-4.5-air": "zhipu", "glm-4.5v": "zhipu", "glm-4": "zhipu", "glm-4v": "zhipu",
-                      "kimi-k2-turbo-preview": "moonshot", "moonshot-v1-8k-vision-preview": "moonshot",
-                      "qwen3-max": "Alibaba", "qwen3-vl-plus": "Alibaba",
-                      "MiniMax-M2":"Minimax",}
-    
-    needed_keys = set()
-    if args.text_model in model_providers:
-        needed_keys.add(required_keys[model_providers[args.text_model]])
-    if args.vision_model in model_providers:
-        needed_keys.add(required_keys[model_providers[args.vision_model]])
-    
-    missing = [k for k in needed_keys if not os.getenv(k)]
+    # check api keys (but allow local base_url / explicit api_key in ModelConfig)
+    def _is_local_base_url(url: Optional[str]) -> bool:
+        if not url:
+            return False
+        return url.startswith("http://127.0.0.1") or url.startswith("http://localhost")
+
+    required_keys = {
+        "openai": "OPENAI_API_KEY",
+        "anthropic": "ANTHROPIC_API_KEY",
+        "google": "GOOGLE_API_KEY",
+        "zhipu": "ZHIPU_API_KEY",
+        "moonshot": "MOONSHOT_API_KEY",
+        "Minimax": "MINIMAX_API_KEY",
+        "Alibaba": "ALIBABA_API_KEY",
+    }
+
+    # Use the same model config mapping as runtime (supports local port overrides).
+    text_cfg = _get_model_config(args.text_model)
+    vision_cfg = _get_model_config(args.vision_model)
+
+    missing = []
+    for cfg in (text_cfg, vision_cfg):
+        # If model is routed to local proxy, no env key required.
+        if _is_local_base_url(cfg.base_url):
+            continue
+        # If an api_key is explicitly provided in config, no env key required.
+        if cfg.api_key:
+            continue
+        # Otherwise require provider-specific env var (if known).
+        env_key = required_keys.get(cfg.provider)
+        if env_key and not os.getenv(env_key):
+            missing.append(env_key)
+
     if missing:
-        print(f"❌ Missing API keys: {missing}")
+        print(f"❌ Missing API keys: {sorted(set(missing))}")
         return 1
     
     # get pdf path

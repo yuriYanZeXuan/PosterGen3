@@ -31,11 +31,12 @@ def create_model(config: ModelConfig):
             'model_name': config.model_name,
             'temperature': config.temperature,
             'max_tokens': config.max_tokens,
-            'api_key': os.getenv('OPENAI_API_KEY'),
+            # Prefer config overrides to avoid env reliance.
+            'api_key': config.api_key or os.getenv('OPENAI_API_KEY') or "EMPTY",
             'request_timeout': timeout_settings['request_timeout'],
             'max_retries': timeout_settings['max_retries'],
         }
-        base_url = os.getenv('OPENAI_BASE_URL')
+        base_url = config.base_url or os.getenv('OPENAI_BASE_URL')
         if base_url:
             openai_kwargs['base_url'] = base_url
             
@@ -45,11 +46,11 @@ def create_model(config: ModelConfig):
             'model': config.model_name,
             'temperature': config.temperature,
             'max_tokens': config.max_tokens,
-            'api_key': os.getenv('ANTHROPIC_API_KEY'),
+            'api_key': config.api_key or os.getenv('ANTHROPIC_API_KEY') or "EMPTY",
             'timeout': timeout_settings['request_timeout'],
             'max_retries': timeout_settings['max_retries'],
         }
-        base_url = os.getenv('ANTHROPIC_BASE_URL')
+        base_url = config.base_url or os.getenv('ANTHROPIC_BASE_URL')
         if base_url:
             anthropic_kwargs['base_url'] = base_url
             
@@ -59,11 +60,11 @@ def create_model(config: ModelConfig):
             'model': config.model_name,
             'temperature': config.temperature,
             'max_output_tokens': config.max_tokens,
-            'google_api_key': os.getenv('GOOGLE_API_KEY'),
+            'google_api_key': config.api_key or os.getenv('GOOGLE_API_KEY') or "",
             'timeout': timeout_settings['request_timeout'],
             'max_retries': timeout_settings['max_retries'],
         }
-        base_url = os.getenv('GOOGLE_BASE_URL')
+        base_url = config.base_url or os.getenv('GOOGLE_BASE_URL')
         if base_url:
             google_kwargs['base_url'] = base_url
             
@@ -73,11 +74,11 @@ def create_model(config: ModelConfig):
             'model': config.model_name,
             'temperature': config.temperature,
             'max_tokens': config.max_tokens,
-            'api_key': os.getenv('ZHIPU_API_KEY'),
+            'api_key': config.api_key or os.getenv('ZHIPU_API_KEY') or "EMPTY",
             'timeout': timeout_settings['request_timeout'],
             'max_retries': timeout_settings['max_retries'],
         }
-        base_url = os.getenv('ZHIPU_BASE_URL')
+        base_url = config.base_url or os.getenv('ZHIPU_BASE_URL')
         if base_url:
             zhipu_kwargs['base_url'] = base_url
             
@@ -87,11 +88,11 @@ def create_model(config: ModelConfig):
             'model': config.model_name,
             'temperature': config.temperature,
             'max_tokens': config.max_tokens,
-            'api_key': os.getenv('MOONSHOT_API_KEY'),
+            'api_key': config.api_key or os.getenv('MOONSHOT_API_KEY') or "EMPTY",
             'timeout': timeout_settings['request_timeout'],
             'max_retries': timeout_settings['max_retries'],
         }
-        base_url = os.getenv('MOONSHOT_BASE_URL')
+        base_url = config.base_url or os.getenv('MOONSHOT_BASE_URL')
         if base_url:
             moonshot_kwargs['base_url'] = base_url
             
@@ -101,11 +102,11 @@ def create_model(config: ModelConfig):
             'model': config.model_name,
             'temperature': config.temperature,
             'max_tokens': config.max_tokens,
-            'api_key': os.getenv('MINIMAX_API_KEY'),
+            'api_key': config.api_key or os.getenv('MINIMAX_API_KEY') or "EMPTY",
             'timeout': timeout_settings['request_timeout'],
             'max_retries': timeout_settings['max_retries'],
         }
-        base_url = os.getenv('MINIMAX_BASE_URL')
+        base_url = config.base_url or os.getenv('MINIMAX_BASE_URL')
         if base_url:
             minimax_kwargs['base_url'] = base_url
             
@@ -115,11 +116,11 @@ def create_model(config: ModelConfig):
             'model': config.model_name,
             'temperature': config.temperature,
             'max_tokens': config.max_tokens,
-            'api_key': os.getenv('ALIBABA_API_KEY'),
+            'api_key': config.api_key or os.getenv('ALIBABA_API_KEY') or "EMPTY",
             'timeout': timeout_settings['request_timeout'],
             'max_retries': timeout_settings['max_retries'],
         }
-        base_url = os.getenv('ALIBABA_BASE_URL')
+        base_url = config.base_url or os.getenv('ALIBABA_BASE_URL')
         if base_url:
             alibaba_kwargs['base_url'] = base_url
             

@@ -11,6 +11,10 @@ class ModelConfig:
     provider: str
     temperature: float = 0.7
     max_tokens: int = 4096
+    # Optional overrides to avoid relying on environment variables.
+    # When set, `utils.langgraph_utils.create_model()` will prefer these values.
+    base_url: Optional[str] = None
+    api_key: Optional[str] = None
 
 
 @dataclass 
@@ -115,11 +119,15 @@ def create_state(pdf_path: str, text_model: str = "gpt-4.1-2025-04-14", vision_m
 
 def _get_model_config(model_id: str) -> ModelConfig:
     """get model configuration"""
+    # Local OpenAI-compatible proxy for Gemini models (see `gemini_proxy.py`)
+    gemini_local_base_url = "http://127.0.0.1:51958/v1"
+
     configs = {
         "claude": ModelConfig("claude-sonnet-4-20250514", "anthropic"),
         "claude-sonnet-4-20250514": ModelConfig("claude-sonnet-4-20250514", "anthropic"),
-        "gemini": ModelConfig("gemini-2.5-pro", "google"),
-        "gemini-2.5-pro": ModelConfig("gemini-2.5-pro", "google"),
+        # Route Gemini through local OpenAI-compatible proxy by default.
+        "gemini": ModelConfig("gemini-2.5-pro", "openai", base_url=gemini_local_base_url, api_key="EMPTY"),
+        "gemini-2.5-pro": ModelConfig("gemini-2.5-pro", "openai", base_url=gemini_local_base_url, api_key="EMPTY"),
         "gpt-4o-2024-08-06": ModelConfig("gpt-4o-2024-08-06", "openai"),
         "gpt-4.1-2025-04-14": ModelConfig("gpt-4.1-2025-04-14", "openai"),
         "gpt-4.1-mini-2025-04-14": ModelConfig("gpt-4.1-mini-2025-04-14", "openai"),
