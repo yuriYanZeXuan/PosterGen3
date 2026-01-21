@@ -27,54 +27,49 @@ class StoryBoardCurator:
 
     def __call__(self, state: PosterState) -> PosterState:
         log_agent_info(self.name, "creating spatial content plan")
+
+        structured_sections = state.get("structured_sections")
+        narrative_content = state.get("narrative_content")
+        classified_visuals = state.get("classified_visuals")
+
+        if not structured_sections:
+            log_agent_error(self.name, "missing structured_sections from parser")
+            raise ValueError("missing structured_sections from parser")
+        if not narrative_content:
+            log_agent_error(self.name, "missing narrative_content from parser")
+            raise ValueError("missing narrative_content from parser")
+        if not classified_visuals:
+            log_agent_error(self.name, "missing classified_visuals from parser")
+            raise ValueError("missing classified_visuals from parser")
         
-        try:
-            structured_sections = state.get("structured_sections")
-            narrative_content = state.get("narrative_content")
-            classified_visuals = state.get("classified_visuals")
+        # prepare visual height context for spatial planning
+        visual_context = self._prepare_visual_context_for_curator(state)
+        
+        story_board, inp, out = self._create_story_board(
+            structured_sections, narrative_content, classified_visuals, 
+            state.get("images", {}), state.get("tables", {}),
+            visual_context, state["text_model"]
+        )
+        state["tokens"].add_text(inp, out)
+        
+        # validate height distribution
+        validation_result = self._validate_height_distribution(story_board, visual_context)
+        if validation_result["warnings"]:
+            log_agent_warning(self.name, f"height validation warnings: {validation_result['warnings']}")
+        log_agent_info(self.name, f"column utilizations: {validation_result['column_utilizations']}")
+        
+        state["story_board"] = story_board
+        state["current_agent"] = self.name
+        
+        self._save_story_board(state)
+        
+        # log story board summary
+        sections = story_board.get("spatial_content_plan", {}).get("sections", [])
+        total_visuals = sum(len(section.get("visual_assets", [])) for section in sections)
+        
+        log_agent_success(self.name, f"created story board with {len(sections)} sections")
+        log_agent_success(self.name, f"selected {total_visuals} visual assets")
 
-            if not structured_sections:
-                log_agent_error(self.name, "missing structured_sections from parser")
-                raise ValueError("missing structured_sections from parser")
-            if not narrative_content:
-                log_agent_error(self.name, "missing narrative_content from parser")
-                raise ValueError("missing narrative_content from parser")
-            if not classified_visuals:
-                log_agent_error(self.name, "missing classified_visuals from parser")
-                raise ValueError("missing classified_visuals from parser")
-            
-            # prepare visual height context for spatial planning
-            visual_context = self._prepare_visual_context_for_curator(state)
-            
-            story_board, inp, out = self._create_story_board(
-                structured_sections, narrative_content, classified_visuals, 
-                state.get("images", {}), state.get("tables", {}),
-                visual_context, state["text_model"]
-            )
-            state["tokens"].add_text(inp, out)
-            
-            # validate height distribution
-            validation_result = self._validate_height_distribution(story_board, visual_context)
-            if validation_result["warnings"]:
-                log_agent_warning(self.name, f"height validation warnings: {validation_result['warnings']}")
-            log_agent_info(self.name, f"column utilizations: {validation_result['column_utilizations']}")
-            
-            state["story_board"] = story_board
-            state["current_agent"] = self.name
-            
-            self._save_story_board(state)
-            
-            # log story board summary
-            sections = story_board.get("spatial_content_plan", {}).get("sections", [])
-            total_visuals = sum(len(section.get("visual_assets", [])) for section in sections)
-            
-            log_agent_success(self.name, f"created story board with {len(sections)} sections")
-            log_agent_success(self.name, f"selected {total_visuals} visual assets")
-
-        except Exception as e:
-            log_agent_error(self.name, f"failed: {e}")
-            state["errors"].append(f"{self.name}: {e}")
-            
         return state
 
     def _create_story_board(self, structured_sections, narrative_content, classified_visuals, images, tables, visual_context, config):

@@ -19,47 +19,42 @@ class LayoutWithBalancerAgent:
     def __call__(self, state: PosterState) -> PosterState:
         """execute 3-phase layout optimization"""
         log_agent_info(self.name, "starting 3-phase layout optimization")
+
+        # phase 1: initial layout generation
+        log_agent_info(self.name, "phase 1: generating initial layout")
+        initial_state = self.layout_agent(state, mode="initial")
         
-        try:
-            # phase 1: initial layout generation
-            log_agent_info(self.name, "phase 1: generating initial layout")
-            initial_state = self.layout_agent(state, mode="initial")
-            if initial_state.get("errors"):
-                return initial_state
-            
-            # phase 2: balancer optimization  
-            log_agent_info(self.name, "phase 2: optimizing with balancer")
-            balancer_result = self.balancer_agent(
-                initial_layout_data=initial_state["initial_layout_data"],
-                column_analysis=initial_state["column_analysis"],
-                state=initial_state
-            )
-            
-            # save balancer decisions
-            self._save_balancer_output(balancer_result, initial_state)
-            
-            # update state with optimized story board
-            initial_state["optimized_story_board"] = balancer_result["optimized_story_board"]
-            initial_state["balancer_decisions"] = balancer_result["balancer_decisions"]
-            
-            # phase 3: final layout generation
-            log_agent_info(self.name, "phase 3: generating final layout")
-            final_state = self.layout_agent(initial_state, mode="final")
-            if final_state.get("errors"):
-                return final_state
-            
-            # update token counts
-            final_state["tokens"].add_text(
-                balancer_result.get("input_tokens", 0),
-                balancer_result.get("output_tokens", 0)
-            )
-            
-            log_agent_success(self.name, "3-phase layout optimization complete")
-            return final_state
-            
-        except Exception as e:
-            log_agent_error(self.name, f"3-phase optimization error: {e}")
-            return {"errors": [f"{self.name}: {e}"]}
+        # phase 2: balancer optimization
+        log_agent_info(self.name, "phase 2: optimizing with balancer")
+        balancer_result = self.balancer_agent(
+            initial_layout_data=initial_state["initial_layout_data"],
+            column_analysis=initial_state["column_analysis"],
+            state=initial_state
+        )
+        if balancer_result is None:
+            raise ValueError("balancer_agent returned None")
+        
+        # save balancer decisions
+        self._save_balancer_output(balancer_result, initial_state)
+        
+        # update state with optimized story board
+        initial_state["optimized_story_board"] = balancer_result["optimized_story_board"]
+        initial_state["balancer_decisions"] = balancer_result["balancer_decisions"]
+        
+        # phase 3: final layout generation
+        log_agent_info(self.name, "phase 3: generating final layout")
+        final_state = self.layout_agent(initial_state, mode="final")
+        
+        # update token counts (required)
+        if final_state.get("tokens") is None:
+            raise ValueError("missing tokens in final_state")
+        final_state["tokens"].add_text(
+            balancer_result.get("input_tokens", 0),
+            balancer_result.get("output_tokens", 0)
+        )
+        
+        log_agent_success(self.name, "3-phase layout optimization complete")
+        return final_state
 
     def _save_balancer_output(self, balancer_result: Dict, state: PosterState):
         """save balancer optimization results"""
@@ -75,20 +70,16 @@ class LayoutWithBalancerAgent:
 
 def layout_with_balancer_node(state: PosterState) -> Dict[str, Any]:
     """layout with balancer node for langgraph"""
-    try:
-        agent = LayoutWithBalancerAgent()
-        result = agent(state)
-        
-        return {
-            **state,
-            "design_layout": result.get("design_layout"),
-            "optimized_column_assignment": result.get("optimized_column_assignment"),
-            "optimized_story_board": result.get("optimized_story_board"),
-            "balancer_decisions": result.get("balancer_decisions"),
-            "tokens": result.get("tokens"),
-            "current_agent": result.get("current_agent"),
-            "errors": result.get("errors", [])
-        }
-    except Exception as e:
-        log_agent_error("layout_with_balancer", f"node error: {e}")
-        return {**state, "errors": state.get("errors", []) + [f"layout_with_balancer: {e}"]}
+    agent = LayoutWithBalancerAgent()
+    result = agent(state)
+    
+    return {
+        **state,
+        "design_layout": result.get("design_layout"),
+        "optimized_column_assignment": result.get("optimized_column_assignment"),
+        "optimized_story_board": result.get("optimized_story_board"),
+        "balancer_decisions": result.get("balancer_decisions"),
+        "tokens": result.get("tokens"),
+        "current_agent": result.get("current_agent"),
+        "errors": result.get("errors", [])
+    }

@@ -72,13 +72,6 @@ def main():
     
     args = parser.parse_args()
     
-    # poster dimensions: fix width to 54", adjust height by ratio
-    input_ratio = args.poster_width / args.poster_height
-    # check poster ratio: lower bound 1.4 (ISO A paper size), upper bound 2 (human vision limit)
-    if input_ratio > 2 or input_ratio < 1.4:
-        print(f"❌ Poster ratio is out of range: {input_ratio}. Please use a ratio between 1.4 and 2.")
-        return 1
-    
     final_width = args.poster_width
     final_height = args.poster_height
     

@@ -25,71 +25,63 @@ class ColorAgent:
 
     def __call__(self, state: PosterState) -> PosterState:
         log_agent_info(self.name, "starting color analysis")
-        
-        try:
-            aff_logo_path = state.get("aff_logo_path")
-            
-            if aff_logo_path and Path(aff_logo_path).exists():
-                log_agent_info(self.name, "extracting theme from affiliation logo")
-                theme_color = self._extract_theme_from_logo(aff_logo_path, state)
-            else:
-                log_agent_info(self.name, "no logo found, using visual fallback")
-                theme_color = self._extract_theme_from_visuals(state)
-            
-            color_scheme = self._generate_color_scheme(theme_color)
-            color_scheme = self._add_contrast_color(color_scheme)
-            
-            state["color_scheme"] = color_scheme
-            state["current_agent"] = self.name
-            
-            self._save_color_scheme(state)
-            
-            log_agent_success(self.name, f"theme: {theme_color}, {len(color_scheme)} colors")
 
-        except Exception as e:
-            log_agent_error(self.name, f"failed: {e}")
-            state["errors"].append(f"{self.name}: {e}")
-            
+        aff_logo_path = state.get("aff_logo_path")
+        if not aff_logo_path:
+            raise ValueError("missing aff_logo_path (visual fallback removed)")
+        if not Path(aff_logo_path).exists():
+            raise FileNotFoundError(f"affiliation logo not found: {aff_logo_path}")
+        
+        log_agent_info(self.name, "extracting theme from affiliation logo")
+        theme_color = self._extract_theme_from_logo(aff_logo_path, state)
+        
+        color_scheme = self._generate_color_scheme(theme_color)
+        color_scheme = self._add_contrast_color(color_scheme)
+        
+        state["color_scheme"] = color_scheme
+        state["current_agent"] = self.name
+        
+        self._save_color_scheme(state)
+        
+        log_agent_success(self.name, f"theme: {theme_color}, {len(color_scheme)} colors")
+
         return state
 
     def _extract_theme_from_logo(self, logo_path: str, state: PosterState) -> str:
         """extract theme color from affiliation logo using vision LLM"""
         log_agent_info(self.name, f"analyzing affiliation logo: {Path(logo_path).name}")
+
+        # encode logo image
+        with open(logo_path, "rb") as f:
+            img_data = base64.b64encode(f.read()).decode()
         
-        try:
-            # encode logo image
-            with open(logo_path, "rb") as f:
-                img_data = base64.b64encode(f.read()).decode()
-            
-            agent = LangGraphAgent(
-                "color extraction specialist for academic institutions",
-                state["vision_model"]
-            )
-            
-            messages = [
-                {"type": "text", "text": self.logo_extraction_prompt},
-                {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img_data}"}}
-            ]
-            
-            response = agent.step(json.dumps(messages))
-            result = extract_json(response.content)
-            
-            # add token usage
-            state["tokens"].add_vision(response.input_tokens, response.output_tokens)
-            
-            extracted_color = result.get("extracted_color", load_config()["colors"]["fallback_theme"])
-            suitability_score = result.get("suitability_score", 0)
-            
-            log_agent_info(self.name, f"logo analysis: {result.get('color_name', 'unknown')} (score: {suitability_score})")
-            
-            if result.get("adjustment_made") != "none":
-                log_agent_info(self.name, f"color adjusted: {result.get('adjustment_made')}")
-            
-            return extracted_color
-            
-        except Exception as e:
-            log_agent_warning(self.name, f"logo extraction failed: {e}, using fallback")
-            return self._extract_theme_from_visuals(state)
+        agent = LangGraphAgent(
+            "color extraction specialist for academic institutions",
+            state["vision_model"]
+        )
+        
+        messages = [
+            {"type": "text", "text": self.logo_extraction_prompt},
+            {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img_data}"}}
+        ]
+        
+        response = agent.step(json.dumps(messages))
+        result = extract_json(response.content)
+        
+        # add token usage
+        state["tokens"].add_vision(response.input_tokens, response.output_tokens)
+        
+        if "extracted_color" not in result:
+            raise KeyError("logo extraction result missing 'extracted_color'")
+        extracted_color = result["extracted_color"]
+        suitability_score = result.get("suitability_score", 0)
+        
+        log_agent_info(self.name, f"logo analysis: {result.get('color_name', 'unknown')} (score: {suitability_score})")
+        
+        if result.get("adjustment_made") != "none":
+            log_agent_info(self.name, f"color adjusted: {result.get('adjustment_made')}")
+        
+        return extracted_color
 
     def _extract_theme_from_visuals(self, state: PosterState) -> str:
         """fallback: extract theme from key visuals"""
@@ -97,8 +89,7 @@ class ColorAgent:
         key_visual = classified.get("key_visual")
         
         if not key_visual:
-            log_agent_warning(self.name, "no key visual found, using default navy color")
-            return load_config()["colors"]["fallback_theme"]
+            raise ValueError("missing key_visual in classified_visuals (fallback removed)")
         
         # get path to key visual
         images = state.get("images", {})
@@ -110,16 +101,11 @@ class ColorAgent:
                 visual_path = images[fig_id].get("path")
         
         if not visual_path or not Path(visual_path).exists():
-            log_agent_warning(self.name, "key visual path not found, using default navy color")
-            return load_config()["colors"]["fallback_theme"]
+            raise FileNotFoundError("key visual path not found (fallback removed)")
         
         # analyze figure to extract prominent color
-        try:
-            theme_color = self._analyze_figure_for_color(visual_path, state)
-            return theme_color
-        except Exception as e:
-            log_agent_warning(self.name, f"visual color extraction failed: {e}, using default navy color")
-            return load_config()["colors"]["fallback_theme"]
+        theme_color = self._analyze_figure_for_color(visual_path, state)
+        return theme_color
 
     def _analyze_figure_for_color(self, image_path: str, state: PosterState) -> str:
         """analyze figure to extract theme color"""
@@ -147,7 +133,9 @@ class ColorAgent:
         # add token usage
         state["tokens"].add_vision(response.input_tokens, response.output_tokens)
         
-        return result.get("theme_color", load_config()["colors"]["fallback_theme"])
+        if "theme_color" not in result:
+            raise KeyError("figure color extraction result missing 'theme_color'")
+        return result["theme_color"]
 
     def _generate_color_scheme(self, theme_color: str) -> Dict[str, str]:
         # hex to rgb

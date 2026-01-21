@@ -17,33 +17,28 @@ class SectionTitleDesigner:
 
     def __call__(self, state: PosterState) -> PosterState:
         log_agent_info(self.name, "generating section title styling (code-based, Style 2 only)")
-        
-        try:
-            story_board = state.get("story_board")
-            color_scheme = state.get("color_scheme")
-            
-            if not story_board:
-                log_agent_error(self.name, "missing story_board")
-                raise ValueError("missing story_board from curator")
-            
-            if not color_scheme:
-                log_agent_error(self.name, "missing color_scheme")
-                raise ValueError("missing color_scheme from color agent")
-            
-            title_design = self._generate_colorblock_design(story_board, color_scheme)
-            
-            state["section_title_design"] = title_design
-            state["current_agent"] = self.name
-            
-            self._save_title_design(state)
-            
-            log_agent_success(self.name, "generated section title styling")
-            log_agent_info(self.name, f"theme color: {color_scheme.get('theme', 'unknown')}")
 
-        except Exception as e:
-            log_agent_error(self.name, f"failed: {e}")
-            state["errors"].append(f"{self.name}: {e}")
-            
+        story_board = state.get("story_board")
+        color_scheme = state.get("color_scheme")
+        
+        if not story_board:
+            log_agent_error(self.name, "missing story_board")
+            raise ValueError("missing story_board from curator")
+        
+        if not color_scheme:
+            log_agent_error(self.name, "missing color_scheme")
+            raise ValueError("missing color_scheme from color agent")
+        
+        title_design = self._generate_colorblock_design(story_board, color_scheme)
+        
+        state["section_title_design"] = title_design
+        state["current_agent"] = self.name
+        
+        self._save_title_design(state)
+        
+        log_agent_success(self.name, "generated section title styling")
+        log_agent_info(self.name, f"theme color: {color_scheme.get('theme', 'unknown')}")
+
         return state
 
     def _generate_colorblock_design(self, story_board: Dict, color_scheme: Dict) -> Dict:

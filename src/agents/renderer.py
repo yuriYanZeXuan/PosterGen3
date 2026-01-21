@@ -4,6 +4,9 @@ powerpoint rendering using python-pptx
 
 import re
 import qrcode
+import platform
+import shutil
+import subprocess
 from pathlib import Path
 from typing import Dict, Any, Optional
 import json
@@ -36,46 +39,29 @@ class Renderer:
 
     def __call__(self, state: PosterState) -> PosterState:
         log_agent_info(self.name, "Starting Rendering Process")
+
+        self.styling_interfaces = self._load_styling_interfaces(state)
+        output_path = Path(state["output_dir"]) / f"{state['poster_name']}.pptx"
+        self._render_presentation(state, output_path)
         
-        try:
-            self.styling_interfaces = self._load_styling_interfaces(state)
-            output_path = Path(state["output_dir"]) / f"{state['poster_name']}.pptx"
-            self._render_presentation(state, output_path)
-            
-            # convert to png if possible
-            png_path = self._convert_to_png(output_path)
-            
-            log_agent_success(self.name, f"rendered poster: {output_path}")
-            if png_path:
-                log_agent_success(self.name, f"generated preview: {png_path}")
-                
-        except Exception as e:
-            log_agent_error(self.name, f"rendering failed: {e}")
-            state["errors"].append(f"{self.name}: {e}")
-            
+        # convert to png (no fallback)
+        png_path = self._convert_to_png(output_path)
+        
+        log_agent_success(self.name, f"rendered poster: {output_path}")
+        log_agent_success(self.name, f"generated preview: {png_path}")
+
         return state
 
     def _load_styling_interfaces(self, state: PosterState) -> Dict[str, Any]:
         """load styling interfaces from font agent output file"""
         styling_path = Path(state["output_dir"]) / "content" / "styling_interfaces.json"
-        if styling_path.exists():
-            with open(styling_path, 'r', encoding='utf-8') as f:
-                interfaces = json.load(f)
-            interfaces["line_spacing"] = 1.0
-            return interfaces
-        else:
-            # fallback to defaults with 1.0 line spacing
-            return {
-                "bullet_point_marker": "•",
-                "bold_start_tag": "**",
-                "bold_end_tag": "**",
-                "italic_start_tag": "*",
-                "italic_end_tag": "*",
-                "color_start_tag": "<color:",
-                "color_end_tag": "</color>",
-                "line_spacing": 1.0,
-                "paragraph_spacing": 0.1
-            }
+        if not styling_path.exists():
+            raise FileNotFoundError(f"missing styling_interfaces.json at {styling_path}")
+
+        with open(styling_path, 'r', encoding='utf-8') as f:
+            interfaces = json.load(f)
+        interfaces["line_spacing"] = 1.0
+        return interfaces
 
     def _render_presentation(self, state: PosterState, output_path: Path):
         """render complete presentation"""
@@ -89,10 +75,10 @@ class Renderer:
         if state.get("url"):
             qr_code_path = self._generate_qr_code(state["url"], state["output_dir"])
 
-        # use styled_layout if available, fallback to design_layout
-        layout_data = state.get("styled_layout", state.get("design_layout", []))
+        # require styled_layout (no fallback)
+        layout_data = state.get("styled_layout")
         if not layout_data:
-            raise ValueError("no styled_layout or design_layout found")
+            raise ValueError("missing styled_layout (fallback to design_layout removed)")
         
         # sort elements by priority to ensure proper rendering order
         sorted_elements = sorted(layout_data, key=lambda x: x.get("priority", 0.5))
@@ -580,61 +566,57 @@ class Renderer:
         """add visual with proper aspect ratio preservation and optional scaling"""
         visual_path = self._get_visual_path(visual_id, state)
         
-        if visual_path and Path(visual_path).exists():
-            try:
-                # calculate proper size maintaining aspect ratio
-                with Image.open(visual_path) as img:
-                    orig_width, orig_height = img.size
-                    aspect_ratio = orig_width / orig_height
-                
-                # get allocated space from layout
-                available_width = width.inches if hasattr(width, 'inches') else float(width)
-                available_height = height.inches if hasattr(height, 'inches') else float(height)
-                
-                # always use exact dimensions and positioning from JSON
-                final_width = Inches(available_width)
-                final_height = Inches(available_height)
-                centered_left = left
-                centered_top = top
-                
-                slide.shapes.add_picture(visual_path, centered_left, centered_top, width=final_width, height=final_height)
-                
-                if scale_factor < 1.0:
-                    log_agent_info(self.name, f"visual {visual_id} uses layout-calculated dimensions (scale_factor={scale_factor:.1f} already applied)")
-                                       
-            except Exception as e:
-                log_agent_error(self.name, f"failed to add visual {visual_id}: {e}")
+        if not visual_path:
+            raise FileNotFoundError(f"missing visual path for {visual_id}")
+        if not Path(visual_path).exists():
+            raise FileNotFoundError(f"visual file not found for {visual_id}: {visual_path}")
+
+        # calculate proper size maintaining aspect ratio
+        with Image.open(visual_path) as img:
+            orig_width, orig_height = img.size
+            aspect_ratio = orig_width / orig_height
+        
+        # get allocated space from layout
+        available_width = width.inches if hasattr(width, 'inches') else float(width)
+        available_height = height.inches if hasattr(height, 'inches') else float(height)
+        
+        # always use exact dimensions and positioning from JSON
+        final_width = Inches(available_width)
+        final_height = Inches(available_height)
+        centered_left = left
+        centered_top = top
+        
+        slide.shapes.add_picture(visual_path, centered_left, centered_top, width=final_width, height=final_height)
+        
+        if scale_factor < 1.0:
+            log_agent_info(self.name, f"visual {visual_id} uses layout-calculated dimensions (scale_factor={scale_factor:.1f} already applied)")
 
     def _render_logo_with_aspect_ratio(self, slide, element: Dict, image_path: str):
         """render logo with proper aspect ratio preservation"""
         x, y, w, h = (Inches(element[k]) for k in ["x", "y", "width", "height"])
         
-        try:
-            # calculate dimensions while preserving aspect ratio
-            with Image.open(image_path) as img:
-                orig_width, orig_height = img.size
-                aspect_ratio = orig_width / orig_height
-            
-            available_width = w.inches if hasattr(w, 'inches') else float(w)
-            available_height = h.inches if hasattr(h, 'inches') else float(h)
-            
-            # fit image within available space
-            if available_width / aspect_ratio <= available_height:
-                final_width = Inches(available_width)
-                final_height = Inches(available_width / aspect_ratio)
-            else:
-                final_height = Inches(available_height)
-                final_width = Inches(available_height * aspect_ratio)
-            
-            # center the image
-            centered_left = x + (w - final_width) / 2
-            centered_top = y + (h - final_height) / 2
-            
-            slide.shapes.add_picture(image_path, centered_left, centered_top, 
-                                   width=final_width, height=final_height)
-                                   
-        except Exception as e:
-            log_agent_error(self.name, f"failed to render logo: {e}")
+        # calculate dimensions while preserving aspect ratio
+        with Image.open(image_path) as img:
+            orig_width, orig_height = img.size
+            aspect_ratio = orig_width / orig_height
+        
+        available_width = w.inches if hasattr(w, 'inches') else float(w)
+        available_height = h.inches if hasattr(h, 'inches') else float(h)
+        
+        # fit image within available space
+        if available_width / aspect_ratio <= available_height:
+            final_width = Inches(available_width)
+            final_height = Inches(available_width / aspect_ratio)
+        else:
+            final_height = Inches(available_height)
+            final_width = Inches(available_height * aspect_ratio)
+        
+        # center the image
+        centered_left = x + (w - final_width) / 2
+        centered_top = y + (h - final_height) / 2
+        
+        slide.shapes.add_picture(image_path, centered_left, centered_top, 
+                               width=final_width, height=final_height)
 
     def _get_visual_path(self, visual_id: str, state: PosterState) -> Optional[str]:
         """get path to visual asset"""
@@ -679,67 +661,63 @@ class Renderer:
 
     def _convert_to_png(self, pptx_path: Path) -> Optional[str]:
         """convert PPTX to PNG using LibreOffice"""
-        try:
-            import subprocess
-            output_dir = pptx_path.parent
-            
-            import platform
-            system = platform.system().lower()
-            
-            if system == "windows":
-                libreoffice_paths = [
-                    r"C:\Program Files\LibreOffice\program\soffice.exe",
-                    r"C:\Program Files (x86)\LibreOffice\program\soffice.exe",
-                    r"C:\Users\%USERNAME%\AppData\Local\Programs\LibreOffice\program\soffice.exe",
-                    "soffice.exe",
-                    "libreoffice.exe"
-                ]
-            elif system == "linux":
-                libreoffice_paths = [
-                    "/usr/bin/libreoffice",
-                    "/usr/local/bin/libreoffice",
-                    "/snap/bin/libreoffice",
-                    "/usr/bin/soffice",
-                    "libreoffice",
-                    "soffice"
-                ]
-            elif system == "darwin":  # macOS
-                libreoffice_paths = [
-                    "/Applications/LibreOffice.app/Contents/MacOS/soffice",
-                    "/usr/local/bin/libreoffice",
-                    "libreoffice",
-                    "soffice"
-                ]
+        output_dir = pptx_path.parent
+        system = platform.system().lower()
+        
+        if system == "windows":
+            candidates = [
+                r"C:\Program Files\LibreOffice\program\soffice.exe",
+                r"C:\Program Files (x86)\LibreOffice\program\soffice.exe",
+                "soffice.exe",
+                "libreoffice.exe",
+            ]
+        elif system == "linux":
+            candidates = [
+                "/usr/bin/libreoffice",
+                "/usr/local/bin/libreoffice",
+                "/snap/bin/libreoffice",
+                "/usr/bin/soffice",
+                "libreoffice",
+                "soffice",
+            ]
+        elif system == "darwin":  # macOS
+            candidates = [
+                "/Applications/LibreOffice.app/Contents/MacOS/soffice",
+                "/usr/local/bin/libreoffice",
+                "libreoffice",
+                "soffice",
+            ]
+        else:
+            candidates = ["libreoffice", "soffice"]
+        
+        resolved = None
+        for c in candidates:
+            if Path(c).is_absolute():
+                if Path(c).exists():
+                    resolved = c
+                    break
             else:
-                libreoffice_paths = [
-                    "libreoffice",
-                    "soffice"
-                ]
-            
-            for lo_path in libreoffice_paths:
-                try:
-                    cmd = [
-                        lo_path, "--headless", "--convert-to", "png",
-                        "--outdir", str(output_dir), str(pptx_path)
-                    ]
-                    
-                    result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-                    
-                    if result.returncode == 0:
-                        png_name = pptx_path.stem + ".png"
-                        png_path = output_dir / png_name
-                        if png_path.exists():
-                            return str(png_path)
-                            
-                except (subprocess.SubprocessError, FileNotFoundError):
-                    continue
-            
-            log_agent_error(self.name, "LibreOffice not found - install for PNG conversion")
-            
-        except Exception as e:
-            log_agent_error(self.name, f"PNG conversion failed: {e}")
-            
-        return None
+                p = shutil.which(c)
+                if p:
+                    resolved = p
+                    break
+        
+        if not resolved:
+            raise FileNotFoundError("LibreOffice not found (required for PNG conversion)")
+        
+        cmd = [
+            resolved, "--headless", "--convert-to", "png",
+            "--outdir", str(output_dir), str(pptx_path)
+        ]
+        
+        subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=60)
+        
+        png_name = pptx_path.stem + ".png"
+        png_path = output_dir / png_name
+        if not png_path.exists():
+            raise FileNotFoundError(f"PNG conversion finished but output not found: {png_path}")
+        
+        return str(png_path)
 
 
 def renderer_node(state: PosterState) -> Dict[str, Any]:

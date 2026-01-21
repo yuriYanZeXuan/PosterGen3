@@ -229,7 +229,7 @@ class Parser:
         if not isinstance(content_list, list):
             raise RuntimeError(f"content_list.json 非 list：{type(content_list)}")
 
-        # best-effort copy images into assets_dir
+        # copy images into assets_dir (no best-effort / no fallback)
         for item in content_list:
             rel_img = item.get("img_path")
             if not rel_img:
@@ -240,7 +240,7 @@ class Parser:
                 if src_path2.exists():
                     src_path = src_path2.resolve()
             if not src_path.exists():
-                continue
+                raise FileNotFoundError(f"image referenced in content_list but not found: img_path={rel_img}")
             dst_path = (assets_dir / src_path.name).resolve()
             if dst_path != src_path:
                 shutil.copyfile(src_path, dst_path)

@@ -46,79 +46,68 @@ class LayoutAgent:
         """generate initial layout without optimization - direct curator mapping"""
         log_agent_info(self.name, "generating initial layout from story board")
         
-        try:
-            story_board = state.get("story_board")
-            if not story_board:
-                raise ValueError("missing story_board from curator")
+        story_board = state.get("story_board")
+        if not story_board:
+            raise ValueError("missing story_board from curator")
+        
+        # organize sections from story board for layout creation
+        sections = story_board["spatial_content_plan"]["sections"]
+        optimized_layout = self._organize_sections_by_column(sections)
+        
+        # create layout directly from curator output - no optimization
+        layout_data = self._create_precise_layout(
+            story_board=story_board,
+            optimized_layout=optimized_layout,
+            state=state
+        )
+        
+        # generate column analysis for balancer
+        column_analysis = self._generate_column_analysis(layout_data, state)
+        
+        state["initial_layout_data"] = layout_data
+        state["column_analysis"] = column_analysis
+        state["current_agent"] = self.name
+        
+        self._save_initial_layout(state)
+        
+        log_agent_success(self.name, "initial layout generated")
+        return state
             
-            # organize sections from story board for layout creation
-            sections = story_board["spatial_content_plan"]["sections"]
-            optimized_layout = self._organize_sections_by_column(sections)
-            
-            # create layout directly from curator output - no optimization
-            layout_data = self._create_precise_layout(
-                story_board=story_board,
-                optimized_layout=optimized_layout,
-                state=state
-            )
-            
-            # generate column analysis for balancer
-            column_analysis = self._generate_column_analysis(layout_data, state)
-            
-            state["initial_layout_data"] = layout_data
-            state["column_analysis"] = column_analysis
-            state["current_agent"] = self.name
-            
-            self._save_initial_layout(state)
-            
-            log_agent_success(self.name, "initial layout generated")
-            return state
-            
-        except Exception as e:
-            log_agent_error(self.name, f"initial layout error: {e}")
-            state["errors"].append(f"{self.name}: {e}")
-            return state
     
     def _generate_final_layout(self, state: PosterState) -> PosterState:
         """generate final layout from optimized story board"""
         log_agent_info(self.name, "generating final layout from optimized story board")
+
+        optimized_story_board = state.get("optimized_story_board")
+        if not optimized_story_board:
+            raise ValueError("missing optimized_story_board from balancer")
         
-        try:
-            optimized_story_board = state.get("optimized_story_board")
-            if not optimized_story_board:
-                raise ValueError("missing optimized_story_board from balancer")
-            
-            # organize sections from optimized story board
-            sections = optimized_story_board["spatial_content_plan"]["sections"]
-            organized_layout = self._organize_sections_by_column(sections)
-            
-            # create final layout from optimized story board
-            layout_data = self._create_precise_layout(
-                story_board=optimized_story_board,
-                optimized_layout=organized_layout,
-                state=state
-            )
-            
-            # generate final column analysis to verify optimization success
-            final_column_analysis = self._generate_column_analysis(layout_data, state)
-            
-            # validate final layout
-            validation = self._validate_precise_layout(layout_data, state["poster_width"], state["poster_height"])
-            
-            state["design_layout"] = layout_data
-            state["final_column_analysis"] = final_column_analysis
-            state["optimized_column_assignment"] = organized_layout["optimized_layout"]["column_assignments"]
-            state["current_agent"] = self.name
-            
-            self._save_final_layout(state)
-            
-            log_agent_success(self.name, "final layout complete")
-            return state
-            
-        except Exception as e:
-            log_agent_error(self.name, f"final layout error: {e}")
-            state["errors"].append(f"{self.name}: {e}")
-            return state
+        # organize sections from optimized story board
+        sections = optimized_story_board["spatial_content_plan"]["sections"]
+        organized_layout = self._organize_sections_by_column(sections)
+        
+        # create final layout from optimized story board
+        layout_data = self._create_precise_layout(
+            story_board=optimized_story_board,
+            optimized_layout=organized_layout,
+            state=state
+        )
+        
+        # generate final column analysis to verify optimization success
+        final_column_analysis = self._generate_column_analysis(layout_data, state)
+        
+        # validate final layout
+        validation = self._validate_precise_layout(layout_data, state["poster_width"], state["poster_height"])
+        
+        state["design_layout"] = layout_data
+        state["final_column_analysis"] = final_column_analysis
+        state["optimized_column_assignment"] = organized_layout["optimized_layout"]["column_assignments"]
+        state["current_agent"] = self.name
+        
+        self._save_final_layout(state)
+        
+        log_agent_success(self.name, "final layout complete")
+        return state
     
     def _optimize_column_distribution(self, story_board: Dict, poster_width: int, poster_height: int, config, state) -> Dict:
         """rule-based column distribution for optimal space utilization"""
@@ -130,14 +119,11 @@ class LayoutAgent:
         available_height = effective_height - title_region_height  # remaining height for sections
         column_width = (poster_width - 2 * self.poster_margin - (self.column_count - 1) * self.column_spacing) / self.column_count
         
-        # handle new spatial content plan format
-        if "spatial_content_plan" in story_board:
-            sections = story_board["spatial_content_plan"]["sections"]
-            column_distribution = story_board.get("column_distribution", {})
-        else:
-            # fallback to old format
-            sections = story_board.get("story_board", {}).get("sections", [])
-            column_distribution = {}
+        # require new spatial content plan format (no fallback)
+        if "spatial_content_plan" not in story_board:
+            raise ValueError("missing 'spatial_content_plan' in story_board (old format fallback removed)")
+        sections = story_board["spatial_content_plan"]["sections"]
+        column_distribution = story_board.get("column_distribution", {})
         
         # create precise spatial layout using css-like calculations
         optimized_layout = self._create_spatial_layout(
@@ -527,6 +513,7 @@ class LayoutAgent:
                 break
         
         # extract styling information
+        section_app = section_app or {}
         title_styling = section_app.get("title_styling", {})
         accent_styling = section_app.get("accent_styling", {})
         
@@ -750,26 +737,30 @@ class LayoutAgent:
         
         # check in appropriate collection first based on visual_id prefix
         if visual_id.startswith("table_") and lookup_id in tables:
-            found_aspect = tables[lookup_id].get("aspect", aspect_ratio)
-            aspect_ratio = found_aspect
+            if "aspect" not in tables[lookup_id]:
+                raise KeyError(f"missing aspect for table {lookup_id}")
+            aspect_ratio = tables[lookup_id]["aspect"]
             log_agent_info(self.name, f"found visual {visual_id} -> {lookup_id} in tables, aspect={aspect_ratio:.2f}")
         elif visual_id.startswith("figure_") and lookup_id in images:
-            found_aspect = images[lookup_id].get("aspect", aspect_ratio)
-            aspect_ratio = found_aspect
+            if "aspect" not in images[lookup_id]:
+                raise KeyError(f"missing aspect for figure {lookup_id}")
+            aspect_ratio = images[lookup_id]["aspect"]
             log_agent_info(self.name, f"found visual {visual_id} -> {lookup_id} in images, aspect={aspect_ratio:.2f}")
         elif lookup_id in images:
-            found_aspect = images[lookup_id].get("aspect", aspect_ratio)
-            aspect_ratio = found_aspect
+            if "aspect" not in images[lookup_id]:
+                raise KeyError(f"missing aspect for figure {lookup_id}")
+            aspect_ratio = images[lookup_id]["aspect"]
             log_agent_info(self.name, f"found visual {visual_id} -> {lookup_id} in images, aspect={aspect_ratio:.2f}")
         elif lookup_id in tables:
-            found_aspect = tables[lookup_id].get("aspect", aspect_ratio)
-            aspect_ratio = found_aspect
+            if "aspect" not in tables[lookup_id]:
+                raise KeyError(f"missing aspect for table {lookup_id}")
+            aspect_ratio = tables[lookup_id]["aspect"]
             log_agent_info(self.name, f"found visual {visual_id} -> {lookup_id} in tables, aspect={aspect_ratio:.2f}")
         else:
-            log_agent_warning(self.name, f"visual {visual_id} (lookup: {lookup_id}) not found in state data, using fallback aspect={aspect_ratio:.2f}")
-            # debug: log available visual data
-            log_agent_info(self.name, f"available images: {list(images.keys())}")
-            log_agent_info(self.name, f"available tables: {list(tables.keys())}")
+            raise KeyError(
+                f"visual {visual_id} (lookup: {lookup_id}) not found in state data; "
+                f"available images={list(images.keys())}, tables={list(tables.keys())}"
+            )
         
         # calculate original height from aspect ratio
         original_height = visual_width / aspect_ratio

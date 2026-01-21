@@ -54,32 +54,23 @@ class BalancerAgent:
             variables["middle_utilization"] = f"{middle_rate:.1%}"
             variables["middle_status"] = columns["middle"]["status"]
         
-        MAX_ATTEMPTS = 3
-        for attempt in range(MAX_ATTEMPTS):
-            prompt = self.balancer_prompt.format(**variables)
-            response = agent.step(prompt)
-            
-            log_agent_info(self.name, f"attempt {attempt + 1}: response {len(response.content)} chars")
-            
-            try:
-                optimized_story_board = extract_json(response.content)
-                
-                if self._validate_story_board(optimized_story_board):
-                    log_agent_success(self.name, f"optimized on attempt {attempt + 1}")
-                    return {
-                        "optimized_story_board": optimized_story_board,
-                        "balancer_decisions": self._extract_decisions(response.content),
-                        "input_tokens": response.input_tokens,
-                        "output_tokens": response.output_tokens
-                    }
-                else:
-                    log_agent_error(self.name, f"attempt {attempt + 1}: validation failed")
-                    
-            except Exception as e:
-                log_agent_error(self.name, f"attempt {attempt + 1}: json extraction failed - {str(e)}")
+        prompt = self.balancer_prompt.format(**variables)
+        response = agent.step(prompt)
         
-        log_agent_error(self.name, f"failed after {MAX_ATTEMPTS} attempts")
-        return {"optimized_story_board": story_board, "balancer_decisions": {}}
+        log_agent_info(self.name, f"response {len(response.content)} chars")
+        
+        optimized_story_board = extract_json(response.content)
+        
+        if not self._validate_story_board(optimized_story_board):
+            raise ValueError("optimized story_board validation failed (retry/fallback removed)")
+        
+        log_agent_success(self.name, "optimized story board created")
+        return {
+            "optimized_story_board": optimized_story_board,
+            "balancer_decisions": self._extract_decisions(response.content),
+            "input_tokens": response.input_tokens,
+            "output_tokens": response.output_tokens
+        }
 
     def _validate_story_board(self, story_board: Dict) -> bool:
         """validate story board structure"""
@@ -135,23 +126,19 @@ class BalancerAgent:
 
 def balancer_agent_node(state: PosterState) -> Dict[str, Any]:
     """balancer agent node for langgraph"""
-    try:
-        agent = BalancerAgent()
-        result = agent(state.get("initial_layout_data"), 
-                      state.get("column_analysis"), 
-                      state)
-        
-        state["tokens"].add_text(
-            result.get("input_tokens", 0),
-            result.get("output_tokens", 0)
-        )
-        
-        return {
-            **state,
-            "optimized_story_board": result["optimized_story_board"],
-            "balancer_decisions": result["balancer_decisions"],
-            "current_agent": "balancer_agent"
-        }
-    except Exception as e:
-        log_agent_error("balancer_agent", f"error: {e}")
-        return {**state, "errors": state.get("errors", []) + [f"balancer_agent: {e}"]}
+    agent = BalancerAgent()
+    result = agent(state.get("initial_layout_data"), 
+                  state.get("column_analysis"), 
+                  state)
+    
+    state["tokens"].add_text(
+        result.get("input_tokens", 0),
+        result.get("output_tokens", 0)
+    )
+    
+    return {
+        **state,
+        "optimized_story_board": result["optimized_story_board"],
+        "balancer_decisions": result["balancer_decisions"],
+        "current_agent": "balancer_agent"
+    }

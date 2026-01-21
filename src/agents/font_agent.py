@@ -25,41 +25,36 @@ class FontAgent:
 
     def __call__(self, state: PosterState) -> PosterState:
         log_agent_info(self.name, "starting font styling")
-        
-        try:
-            design_layout = state.get("design_layout", [])
-            color_scheme = state.get("color_scheme", {})
-            story_board = state.get("story_board", {})
-            
-            if not design_layout:
-                raise ValueError("missing design_layout from layout agent")
-            if not color_scheme:
-                raise ValueError("missing color_scheme from color agent")
-            if not story_board:
-                raise ValueError("missing story_board from story board curator")
-            
-            # identify keywords to highlight
-            keywords = self._identify_keywords(story_board, state)
-            
-            # apply styling to layout
-            styled_layout = self._apply_styling(design_layout, color_scheme, keywords, state)
-            
-            state["styled_layout"] = styled_layout
-            state["keywords"] = keywords
-            state["current_agent"] = self.name
-            
-            self._save_styled_layout(state)
-            
-            # count total keywords across all sections
-            total_keywords = sum(len(kw_list) for kw_list in keywords.get("section_keywords", {}).values())
-            
-            log_agent_success(self.name, f"applied enhanced styling to {len(styled_layout)} elements")
-            log_agent_success(self.name, f"identified {total_keywords} keywords for highlighting")
 
-        except Exception as e:
-            log_agent_error(self.name, f"failed: {e}")
-            state["errors"].append(f"{self.name}: {e}")
-            
+        design_layout = state.get("design_layout", [])
+        color_scheme = state.get("color_scheme", {})
+        story_board = state.get("story_board", {})
+        
+        if not design_layout:
+            raise ValueError("missing design_layout from layout agent")
+        if not color_scheme:
+            raise ValueError("missing color_scheme from color agent")
+        if not story_board:
+            raise ValueError("missing story_board from story board curator")
+        
+        # identify keywords to highlight
+        keywords = self._identify_keywords(story_board, state)
+        
+        # apply styling to layout
+        styled_layout = self._apply_styling(design_layout, color_scheme, keywords, state)
+        
+        state["styled_layout"] = styled_layout
+        state["keywords"] = keywords
+        state["current_agent"] = self.name
+        
+        self._save_styled_layout(state)
+        
+        # count total keywords across all sections
+        total_keywords = sum(len(kw_list) for kw_list in keywords.get("section_keywords", {}).values())
+        
+        log_agent_success(self.name, f"applied enhanced styling to {len(styled_layout)} elements")
+        log_agent_success(self.name, f"identified {total_keywords} keywords for highlighting")
+
         return state
 
     def _identify_keywords(self, story_board: Dict, state: PosterState) -> Dict[str, Any]:
