@@ -80,8 +80,31 @@ def create_state(pdf_path: str, text_model: str = "gpt-4.1-2025-04-14", vision_m
     """create initial poster state"""
     from pathlib import Path
     
-    poster_name = Path(pdf_path).parent.name or "test_poster"
-    output_dir = f"output/{poster_name}"
+    base_name = Path(pdf_path).parent.name or "test_poster"
+
+    output_root = Path("output")
+    output_root.mkdir(parents=True, exist_ok=True)
+
+    # Avoid overwriting outputs across runs by appending an incrementing suffix.
+    # Example: output/foo, output/foo_001, output/foo_002, ...
+    candidate = output_root / base_name
+    if not candidate.exists():
+        candidate.mkdir(parents=True, exist_ok=False)
+        poster_name = base_name
+        output_dir = str(candidate)
+    else:
+        poster_name = base_name
+        output_dir = str(candidate)
+        for i in range(1, 10000):
+            run_name = f"{base_name}_{i:03d}"
+            run_dir = output_root / run_name
+            if not run_dir.exists():
+                run_dir.mkdir(parents=True, exist_ok=False)
+                poster_name = run_name
+                output_dir = str(run_dir)
+                break
+        else:
+            raise RuntimeError(f"unable to allocate unique output_dir under {output_root} for base_name={base_name}")
     
     return PosterState(
         pdf_path=pdf_path,

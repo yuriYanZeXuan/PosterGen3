@@ -39,17 +39,9 @@ Prioritize content reduction over content expansion. Better to have 80% utilizat
 - **Expansion limit**: Add maximum 10-15 words total per section
 - **Reduction target**: Remove 30-50% of content from overflow sections
 
-### Strategy B: Section Management (for <80% or >100% utilization)
-**When to use**: Column has severe underutilization (<80%) or overflow (>100%)
-**Actions allowed**:
-1. **Add sections from structured_sections**: Use additional content from paper sections that fit the column's purpose
-2. **Remove less important sections**: Remove sections with importance_level=3 or lower importance
-
-**Section Removal Priority (CRITICAL RULES)**:
-- **NEVER remove**: Method sections with key_visual (importance_level=1)
-- **NEVER remove**: Core experimental results or main findings
-- **Remove first**: Supporting context, minor experiments, supplementary details (importance_level=3)
-- **Remove second**: Secondary analysis, additional background (importance_level=2)
+### Strategy B: (DISABLED) Section Management
+To avoid invalid JSON structures that break downstream layout generation, DO NOT add/remove sections.
+If a column is severely underutilized, expand existing bullets slightly; if overflowing, shorten bullets aggressively.
 
 ## Strict Constraints
 
@@ -108,3 +100,8 @@ Output the complete optimized story_board JSON. Each section's `text_content` mu
 Preserve all original structure and field names. Only modify content within string values.
 
 **CRITICAL REMINDER**: Only modify content within existing columns. Never move sections between columns.
+
+## Output Safety Rules (MANDATORY)
+- NEVER output `null` anywhere inside `spatial_content_plan.sections`.
+- NEVER replace a section object with `null`. If you think something should be removed, shorten its text instead.
+- NEVER change array types: `sections` must remain a JSON array of JSON objects.

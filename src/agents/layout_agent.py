@@ -112,6 +112,8 @@ class LayoutAgent:
     def _optimize_column_distribution(self, story_board: Dict, poster_width: int, poster_height: int, config, state) -> Dict:
         """rule-based column distribution for optimal space utilization"""
         log_agent_info(self.name, "optimizing column distribution")
+        if story_board is None:
+            raise ValueError("story_board is None (upstream agent likely failed or returned null)")
         
         # calculate available space
         effective_height = poster_height - 2 * self.poster_margin  # total height minus margins
@@ -244,9 +246,17 @@ class LayoutAgent:
     
     def _organize_sections_by_column(self, sections: List[Dict]) -> Dict:
         """organize sections by column assignment for layout creation"""
+        if sections is None:
+            raise ValueError("sections is None (invalid story_board: spatial_content_plan.sections)")
+        if not isinstance(sections, list):
+            raise TypeError(f"sections must be a list, got {type(sections)}")
         columns = {c: [] for c in self.column_names}
         
-        for section in sections:
+        for i, section in enumerate(sections):
+            if section is None:
+                raise ValueError(f"sections[{i}] is None (LLM output must not contain null sections)")
+            if not isinstance(section, dict):
+                raise TypeError(f"sections[{i}] must be dict, got {type(section)}")
             column = section.get("column_assignment", "left")
             if column in columns:
                 columns[column].append(section)
