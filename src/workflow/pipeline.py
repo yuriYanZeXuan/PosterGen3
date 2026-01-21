@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from langgraph.graph import StateGraph, START, END
 
 from src.state.poster_state import create_state, PosterState, _get_model_config
+from src.config.poster_config import load_config
 from src.agents.parser import parser_node
 from src.agents.curator import curator_node
 from src.agents.layout_with_balancer import layout_with_balancer_node as layout_optimizer_node
@@ -78,8 +79,8 @@ def main():
         print(f"❌ Poster ratio is out of range: {input_ratio}. Please use a ratio between 1.4 and 2.")
         return 1
     
-    final_width = 54.0
-    final_height = final_width / input_ratio
+    final_width = args.poster_width
+    final_height = args.poster_height
     
     # check .env file
     if env_path.exists():

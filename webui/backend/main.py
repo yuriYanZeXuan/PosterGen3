@@ -12,6 +12,7 @@ from fastapi import FastAPI, File, UploadFile, Form, HTTPException, BackgroundTa
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from src.config.poster_config import load_config
 
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
@@ -193,8 +194,6 @@ async def generate_poster(
         raise HTTPException(status_code=400, detail=f"Invalid vision model: {vision_model}")
     
     ratio = poster_width / poster_height
-    if ratio > 2 or ratio < 1.4:
-        raise HTTPException(status_code=400, detail=f"Poster ratio {ratio:.2f} out of range (1.4-2.0)")
     
     if not pdf_file.filename.endswith('.pdf'):
         raise HTTPException(status_code=400, detail="Paper must be a PDF file")

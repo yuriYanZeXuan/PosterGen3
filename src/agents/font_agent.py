@@ -20,6 +20,8 @@ class FontAgent:
     def __init__(self):
         self.name = "font_agent"
         self.keyword_extraction_prompt = load_prompt("config/prompts/extract_keywords.txt")
+        cfg = load_config()
+        self.font_sizes = cfg.get("typography", {}).get("sizes", {})
 
     def __call__(self, state: PosterState) -> PosterState:
         log_agent_info(self.name, "starting font styling")
@@ -160,7 +162,7 @@ class FontAgent:
         # apply base text styling
         element["font_family"] = "Arial"
         element["font_color"] = colors.get("text", "#000000")
-        element["font_size"] = 44
+        element["font_size"] = self.font_sizes.get("body_text", 44)
 
     def _extract_parent_section(self, element: Dict) -> str:
         """extract parent section id from element"""

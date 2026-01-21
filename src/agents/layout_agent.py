@@ -27,6 +27,7 @@ class LayoutAgent:
         self.authors_font_family = self.config["typography"]["fonts"]["authors"]
         self.section_title_font_family = self.config["typography"]["fonts"]["section_title"]
         self.body_text_font_family = self.config["typography"]["fonts"]["body_text"]
+        self.font_sizes = self.config["typography"]["sizes"]
         # layout constants
         self.layout_constants = self.config["layout_constants"]
         self.column_balancing = self.config["column_balancing"]
@@ -370,8 +371,8 @@ class LayoutAgent:
             "height": title_height - 1.0,
             "content": f"{poster_title}\n{authors}",
             "font_family": self.title_font_family,
-            "font_size": 100,
-            "author_font_size": 72,
+            "font_size": self.font_sizes.get("title", 100),
+            "author_font_size": self.font_sizes.get("authors", 72),
             "priority": 1.0
         }
     
@@ -470,7 +471,7 @@ class LayoutAgent:
                 "id": f"{section.get('section_id')}_{visual_id}",
                 "font_family": self.body_text_font_family,
                 "font_color": "#000000",
-                "font_size": 44,
+                "font_size": self.font_sizes.get("body_text", 44),
                 "line_spacing": 1.0
             })
             # use the already-scaled height for positioning (no double scaling)
@@ -485,7 +486,7 @@ class LayoutAgent:
                 text_content=combined_text,
                 width_inches=column_width - (2 * text_padding),
                 font_name=self.body_text_font_family,
-                font_size=44,
+                font_size=self.font_sizes.get("body_text", 44),
                 line_spacing=1.0
             )
             text_height = text_measurement["optimal_height"] + 0.1
@@ -499,7 +500,7 @@ class LayoutAgent:
                 "height": text_height,
                 "content": combined_text,
                 "font_family": self.body_text_font_family,
-                "font_size": 44,
+                "font_size": self.font_sizes.get("body_text", 44),
                 "font_color": "#000000",
                 "priority": 0.5,
                 "id": f"{section.get('section_id')}_text",
@@ -679,7 +680,7 @@ class LayoutAgent:
                 text_content=title,
                 width_inches=column_width - (2 * title_padding),  # account for padding
                 font_name="Helvetica Neue",
-                font_size=64,
+                font_size=self.font_sizes.get("section_title", 64),
                 line_spacing=1.0
             )
             title_height = title_measurement["optimal_height"] + 0.3  # title margin
@@ -696,7 +697,7 @@ class LayoutAgent:
                 text_content=full_text,
                 width_inches=column_width - (2 * text_padding),  # account for padding
                 font_name=self.body_text_font_family, 
-                font_size=44,
+                font_size=self.font_sizes.get("body_text", 44),
                 line_spacing=1.0
             )
             text_height = text_measurement["optimal_height"] + 0.2  # text margin
