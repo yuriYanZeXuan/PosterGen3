@@ -5,13 +5,18 @@ column space balancer
 import json
 from typing import Dict, List, Any
 from src.state.poster_state import PosterState
-from utils.langgraph_utils import load_prompt, LangGraphAgent, extract_json
+from utils.langgraph_utils import load_prompt_by_column_count, LangGraphAgent, extract_json
 from utils.src.logging_utils import log_agent_info, log_agent_success, log_agent_error
 
 class BalancerAgent:
     def __init__(self):
         self.name = "balancer_agent"
-        self.balancer_prompt = load_prompt("config/prompts/layout_balancer.txt")
+        # column_count is read from global config (same as other agents)
+        from src.config.poster_config import load_config
+        cfg = load_config()
+        self.column_count = int(cfg.get("layout", {}).get("column_count", 3))
+        self.column_names = ["left", "right"] if self.column_count == 2 else ["left", "middle", "right"]
+        self.balancer_prompt = load_prompt_by_column_count("layout_balancer.txt", self.column_count)
 
     def __call__(self, initial_layout_data: Dict, column_analysis: Dict, 
                  state: PosterState) -> Dict:
@@ -24,10 +29,13 @@ class BalancerAgent:
         
         columns = column_analysis['columns']
         left_rate = columns['left']['utilization_rate']
-        middle_rate = columns['middle']['utilization_rate'] 
         right_rate = columns['right']['utilization_rate']
-        
-        log_agent_info(self.name, f"utilization - left: {left_rate:.1%}, middle: {middle_rate:.1%}, right: {right_rate:.1%}")
+
+        if self.column_count == 2:
+            log_agent_info(self.name, f"utilization - left: {left_rate:.1%}, right: {right_rate:.1%}")
+        else:
+            middle_rate = columns['middle']['utilization_rate']
+            log_agent_info(self.name, f"utilization - left: {left_rate:.1%}, middle: {middle_rate:.1%}, right: {right_rate:.1%}")
         
         agent = LangGraphAgent("layout optimization specialist", state["text_model"])
         
@@ -37,12 +45,14 @@ class BalancerAgent:
             "column_analysis": json.dumps(column_analysis, indent=2),
             "available_height": column_analysis["available_height"],
             "left_utilization": f"{left_rate:.1%}",
-            "middle_utilization": f"{middle_rate:.1%}",
             "right_utilization": f"{right_rate:.1%}",
             "left_status": columns['left']['status'],
-            "middle_status": columns['middle']['status'], 
             "right_status": columns['right']['status']
         }
+
+        if self.column_count != 2:
+            variables["middle_utilization"] = f"{middle_rate:.1%}"
+            variables["middle_status"] = columns["middle"]["status"]
         
         MAX_ATTEMPTS = 3
         for attempt in range(MAX_ATTEMPTS):
@@ -89,7 +99,7 @@ class BalancerAgent:
                 return False
             if "column_assignment" not in section:
                 return False
-            if section["column_assignment"] not in ["left", "middle", "right"]:
+            if section["column_assignment"] not in self.column_names:
                 return False
                 
         return True

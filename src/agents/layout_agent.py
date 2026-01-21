@@ -20,6 +20,8 @@ class LayoutAgent:
         self.config = load_config()
         self.poster_margin = self.config["layout"]["poster_margin"]
         self.column_spacing = self.config["layout"]["column_spacing"]
+        self.column_count = int(self.config.get("layout", {}).get("column_count", 3))
+        self.column_names = ["left", "right"] if self.column_count == 2 else ["left", "middle", "right"]
         self.title_height_fraction = self.config["layout"]["title_height_fraction"]
         self.title_font_family = self.config["typography"]["fonts"]["title"]
         self.authors_font_family = self.config["typography"]["fonts"]["authors"]
@@ -125,7 +127,7 @@ class LayoutAgent:
         effective_height = poster_height - 2 * self.poster_margin  # total height minus margins
         title_region_height = effective_height * self.title_height_fraction  # 18% of effective height
         available_height = effective_height - title_region_height  # remaining height for sections
-        column_width = (poster_width - 2 * self.poster_margin - 2 * self.column_spacing) / 3
+        column_width = (poster_width - 2 * self.poster_margin - (self.column_count - 1) * self.column_spacing) / self.column_count
         
         # handle new spatial content plan format
         if "spatial_content_plan" in story_board:
@@ -205,24 +207,25 @@ class LayoutAgent:
         available_height = effective_height - title_region_height
         
         # calculate precise column x coordinates using global constants
-        column_width = (poster_width - 2 * self.poster_margin - 2 * self.column_spacing) / 3
-        left_column_x = self.poster_margin
-        middle_column_x = self.poster_margin + column_width + self.column_spacing
-        right_column_x = self.poster_margin + 2 * (column_width + self.column_spacing)
-        
-        columns = {"left": [], "middle": [], "right": []}
-        
+        column_width = (poster_width - 2 * self.poster_margin - (self.column_count - 1) * self.column_spacing) / self.column_count
+        x_starts = [self.poster_margin + i * (column_width + self.column_spacing) for i in range(self.column_count)]
+        boundaries = [(x_starts[i] + x_starts[i + 1]) / 2 for i in range(self.column_count - 1)]
+
+        columns = {name: [] for name in self.column_names}
+
         # group elements by column using calculated column boundaries
         for element in layout_data:
-            if element.get("type") == "section_container":
-                element_x = element.get("x", 0)
-                # use midpoint boundaries to categorize elements
-                if element_x < (left_column_x + middle_column_x) / 2:
-                    columns["left"].append(element)
-                elif element_x < (middle_column_x + right_column_x) / 2:
-                    columns["middle"].append(element)
-                else:
-                    columns["right"].append(element)
+            if element.get("type") != "section_container":
+                continue
+            element_x = element.get("x", 0)
+            col_idx = 0
+            for b in boundaries:
+                if element_x < b:
+                    break
+                col_idx += 1
+            col_idx = min(col_idx, self.column_count - 1)
+            col_name = self.column_names[col_idx]
+            columns[col_name].append(element)
         
         # calculate utilization for each column
         column_analysis = {
@@ -254,18 +257,14 @@ class LayoutAgent:
     
     def _organize_sections_by_column(self, sections: List[Dict]) -> Dict:
         """organize sections by column assignment for layout creation"""
-        columns = {"left": [], "middle": [], "right": []}
+        columns = {c: [] for c in self.column_names}
         
         for section in sections:
             column = section.get("column_assignment", "left")
             if column in columns:
                 columns[column].append(section)
         
-        column_assignments = [
-            {"column_id": 0, "sections": columns["left"]},
-            {"column_id": 1, "sections": columns["middle"]}, 
-            {"column_id": 2, "sections": columns["right"]}
-        ]
+        column_assignments = [{"column_id": i, "sections": columns[name]} for i, name in enumerate(self.column_names)]
         
         return {
             "optimized_layout": {
@@ -285,7 +284,7 @@ class LayoutAgent:
         effective_height = poster_height - 2 * self.poster_margin
         title_region_height = effective_height * self.title_height_fraction  # 18% fixed region
         available_height = effective_height - title_region_height  # remaining for sections
-        column_width = (poster_width - 2 * self.poster_margin - 2 * self.column_spacing) / 3
+        column_width = (poster_width - 2 * self.poster_margin - (self.column_count - 1) * self.column_spacing) / self.column_count
         
         # add title element (still uses actual measured height, not fixed region height)
         title_element = self._create_title_element(state, poster_width, title_region_height)
@@ -349,9 +348,13 @@ class LayoutAgent:
     
     def _create_title_element(self, state: PosterState, poster_width: float, title_height: float) -> Dict:
         """create title element with exact positioning"""
-        # calculate 2/3 width (2 columns + 1 margin width)
-        column_width = (poster_width - 2 * self.poster_margin - 2 * self.column_spacing) / 3
-        title_width = 2 * column_width + self.column_spacing  # 2 columns + 1 spacing
+        # Horizontal (3 columns): keep legacy 2/3 span.
+        # Vertical (2 columns): span full usable width for better hierarchy.
+        if self.column_count == 2:
+            title_width = poster_width - 2 * self.poster_margin
+        else:
+            column_width = (poster_width - 2 * self.poster_margin - (self.column_count - 1) * self.column_spacing) / self.column_count
+            title_width = 2 * column_width + self.column_spacing  # 2 columns + 1 spacing
         
         # extract title and authors from narrative content
         narrative = state.get("narrative_content", {})
@@ -387,8 +390,8 @@ class LayoutAgent:
             with Image.open(state["aff_logo_path"]) as img:
                 aff_logo_aspect_ratio = img.size[0] / img.size[1]
 
-        # calculate logo heights based on fit in 1/3 of poster width
-        column_width = (poster_width - 2 * self.poster_margin - 2 * self.column_spacing) / 3
+        # calculate logo heights based on fit in one column width
+        column_width = (poster_width - 2 * self.poster_margin - (self.column_count - 1) * self.column_spacing) / self.column_count
         logo_height = (column_width - 1) / (conf_logo_aspect_ratio + aff_logo_aspect_ratio)
         # widths based on aspect ratios
         conf_logo_width = logo_height * conf_logo_aspect_ratio
@@ -633,18 +636,17 @@ class LayoutAgent:
         log_agent_info(self.name, "creating spatial layout with css-like precision")
         
         # organize sections by spatial assignment
-        columns = {
-            "left": {"sections": [], "total_height": 0.0},
-            "middle": {"sections": [], "total_height": 0.0}, 
-            "right": {"sections": [], "total_height": 0.0}
-        }
+        columns = {c: {"sections": [], "total_height": 0.0} for c in self.column_names}
         
         for section in sections:
             column = section.get("column_assignment", "left")
             if column in columns:
                 columns[column]["sections"].append(section)
         
-        log_agent_info(self.name, f"organized sections: left={len(columns['left']['sections'])}, middle={len(columns['middle']['sections'])}, right={len(columns['right']['sections'])}")
+        log_agent_info(
+            self.name,
+            "organized sections: " + ", ".join(f"{c}={len(columns[c]['sections'])}" for c in self.column_names),
+        )
         
         # calculate precise heights for each section
         for column_name, column_data in columns.items():
@@ -655,19 +657,14 @@ class LayoutAgent:
         
         
         # return layout in expected format
-        return [{
-            "column_id": 0,
-            "sections": [s for s in sections if s.get("column_assignment") == "left"],
-            "estimated_height": columns["left"]["total_height"]
-        }, {
-            "column_id": 1, 
-            "sections": [s for s in sections if s.get("column_assignment") == "middle"],
-            "estimated_height": columns["middle"]["total_height"]
-        }, {
-            "column_id": 2,
-            "sections": [s for s in sections if s.get("column_assignment") == "right"], 
-            "estimated_height": columns["right"]["total_height"]
-        }]
+        return [
+            {
+                "column_id": i,
+                "sections": columns[c]["sections"],
+                "estimated_height": columns[c]["total_height"],
+            }
+            for i, c in enumerate(self.column_names)
+        ]
     
     def _calculate_precise_section_height(self, section: Dict, column_width: float, state: PosterState, available_height: float = None) -> float:
         """calculate precise section height using css box model"""

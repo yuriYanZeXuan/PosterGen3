@@ -14,7 +14,7 @@ from jinja2 import Template
 from PIL import Image  # type: ignore
 
 from src.state.poster_state import PosterState
-from utils.langgraph_utils import LangGraphAgent, extract_json, load_prompt
+from utils.langgraph_utils import LangGraphAgent, extract_json, load_prompt_by_column_count
 from utils.src.logging_utils import log_agent_info, log_agent_success, log_agent_error, log_agent_warning
 from src.config.poster_config import load_config
 
@@ -26,11 +26,14 @@ class Parser:
         # PosterGen3 originally used `marker` for PDF extraction.
         # We now migrate to MinerU (see `Paper2Slides/dev/mineru_pdf_extract_demo.py`)
         # while keeping downstream interfaces (raw_text/figures/tables) consistent.
+        self.config = load_config()
+        self.column_count = int(self.config.get("layout", {}).get("column_count", 3))
+
         self.clean_pattern = re.compile(r"<!--[\s\S]*?-->")
-        self.enhanced_abt_prompt = load_prompt("config/prompts/narrative_abt_extraction.txt")
-        self.visual_classification_prompt = load_prompt("config/prompts/classify_visuals.txt")
-        self.title_authors_prompt = load_prompt("config/prompts/extract_title_authors.txt")
-        self.section_extraction_prompt = load_prompt("config/prompts/extract_structured_sections.txt")
+        self.enhanced_abt_prompt = load_prompt_by_column_count("narrative_abt_extraction.txt", self.column_count)
+        self.visual_classification_prompt = load_prompt_by_column_count("classify_visuals.txt", self.column_count)
+        self.title_authors_prompt = load_prompt_by_column_count("extract_title_authors.txt", self.column_count)
+        self.section_extraction_prompt = load_prompt_by_column_count("extract_structured_sections.txt", self.column_count)
     
     def __call__(self, state: PosterState) -> PosterState:
         log_agent_info(self.name, "starting foundation building")

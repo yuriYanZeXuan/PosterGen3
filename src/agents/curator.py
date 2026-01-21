@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Dict, Any, List
 
 from src.state.poster_state import PosterState
-from utils.langgraph_utils import LangGraphAgent, extract_json, load_prompt
+from utils.langgraph_utils import LangGraphAgent, extract_json, load_prompt_by_column_count
 from utils.src.logging_utils import log_agent_info, log_agent_success, log_agent_error, log_agent_warning
 from src.config.poster_config import load_config
 from jinja2 import Template
@@ -17,8 +17,11 @@ class StoryBoardCurator:
     
     def __init__(self):
         self.name = "spatial_content_planner"
-        self.spatial_planning_prompt = load_prompt("config/prompts/spatial_content_planner.txt")
         self.config = load_config()
+        self.column_count = int(self.config.get("layout", {}).get("column_count", 3))
+        self.column_names = ["left", "right"] if self.column_count == 2 else ["left", "middle", "right"]
+
+        self.spatial_planning_prompt = load_prompt_by_column_count("spatial_content_planner.txt", self.column_count)
         self.validation_config = self.config["validation"]
         self.utilization_config = self.config["utilization_thresholds"]
 
@@ -142,7 +145,7 @@ class StoryBoardCurator:
                     return False
             
             # check column assignment is valid
-            if section["column_assignment"] not in ["left", "middle", "right"]:
+            if section["column_assignment"] not in self.column_names:
                 log_agent_warning(self.name, f"validation error: section {i} invalid column_assignment")
                 return False
                 
@@ -176,16 +179,17 @@ class StoryBoardCurator:
             key_visual = classified_visuals.get("key_visual")
             if key_visual:
                 key_visual_found = False
-                key_visual_in_middle_top = False
+                key_visual_in_required_slot = False
+                required_column = "left" if self.column_count == 2 else "middle"
                 
                 for section in sections:
                     visual_assets = section.get("visual_assets", [])
                     for visual in visual_assets:
                         if visual.get("visual_id") == key_visual:
                             key_visual_found = True
-                            if (section.get("column_assignment") == "middle" and 
+                            if (section.get("column_assignment") == required_column and 
                                 section.get("vertical_priority") == "top"):
-                                key_visual_in_middle_top = True
+                                key_visual_in_required_slot = True
                             break
                     if key_visual_found:
                         break
@@ -194,8 +198,8 @@ class StoryBoardCurator:
                     log_agent_warning(self.name, f"validation error: key_visual '{key_visual}' not found in any section")
                     return False
                     
-                if not key_visual_in_middle_top:
-                    log_agent_warning(self.name, f"validation error: key_visual '{key_visual}' not placed in middle column, top priority")
+                if not key_visual_in_required_slot:
+                    log_agent_warning(self.name, f"validation error: key_visual '{key_visual}' not placed in {required_column} column, top priority")
                     return False
         
         # validate height exclusion compliance if visual_context provided
@@ -259,9 +263,9 @@ class StoryBoardCurator:
         
         # calculate effective column width for visual sizing
         column_margins = 2 * config["layout"]["poster_margin"]
-        column_spacing = 2 * config["layout"]["column_spacing"]  # 2 gaps between 3 columns
-        total_column_width = poster_width - column_margins - column_spacing
-        column_width = total_column_width / 3
+        total_column_spacing = (self.column_count - 1) * config["layout"]["column_spacing"]
+        total_column_width = poster_width - column_margins - total_column_spacing
+        column_width = total_column_width / self.column_count
         
         # account for text padding within each column
         text_padding = 2 * config["layout"]["text_padding"]["left_right"]
@@ -321,7 +325,7 @@ class StoryBoardCurator:
             return {"warnings": ["No sections found in story board"], "column_utilizations": {}}
         
         # organize sections by column
-        columns = {"left": [], "middle": [], "right": []}
+        columns = {c: [] for c in self.column_names}
         for section in sections:
             column = section.get("column_assignment", "left")
             if column in columns:

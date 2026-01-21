@@ -1,6 +1,7 @@
 """LangGraph utilities"""
 
 import os
+from pathlib import Path
 from typing import Dict, Any, Optional, List
 from dotenv import load_dotenv
 import json
@@ -279,3 +280,14 @@ def load_prompt(path: str) -> str:
     """load prompt template from file"""
     with open(path, 'r', encoding='utf-8') as f:
         return f.read()
+
+
+def load_prompt_by_column_count(prompt_filename: str, column_count: int) -> str:
+    """
+    Load prompt by layout column count.
+
+    - column_count == 2: use `config/prompt_vertical/<prompt_filename>`
+    - else: use `config/prompts/<prompt_filename>`
+    """
+    base_dir = Path("config") / ("prompt_vertical" if column_count == 2 else "prompts")
+    return load_prompt(str(base_dir / prompt_filename))
