@@ -1,0 +1,31 @@
+Classify visual assets for a **multi-column academic poster**.
+
+Available visuals with captions:
+{{ visuals_list }}
+
+Classify each visual into exactly one category based on poster design best practices:
+
+**Categories:**
+1. **"key_visual"** - Single most important method visual representing the core innovation (**must be placed in the key visual anchor column, TOP section**)
+2. **"problem_illustration"** - Visuals that explain the motivation/problem setup
+3. **"method_workflow"** - Method architecture/workflow diagrams supporting the approach
+4. **"main_results"** - Primary results that validate the core claim
+5. **"comparative_results"** - Baseline comparisons/ablations/validation charts
+6. **"supporting"** - Background or secondary visuals (lowest priority)
+
+Consider:
+- Visual content and research narrative role
+- Visual impact and audience comprehension
+- Balance and scannability across multiple columns (avoid overloading one area)
+
+Required JSON output:
+{
+  "key_visual": "visual_id or null",
+  "problem_illustration": ["visual_id1", ...],
+  "method_workflow": ["visual_id1", ...],
+  "main_results": ["visual_id1", ...],
+  "comparative_results": ["visual_id1", ...],
+  "supporting": ["visual_id1", ...]
+}
+
+Ensure every visual_id appears exactly once across all categories.

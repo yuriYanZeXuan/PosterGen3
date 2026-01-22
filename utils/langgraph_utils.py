@@ -286,8 +286,15 @@ def load_prompt_by_column_count(prompt_filename: str, column_count: int) -> str:
     """
     Load prompt by layout column count.
 
+    Priority:
+    1) If `config/prompt_free/<prompt_filename>` exists, use it (unified prompts).
+    2) Fallback to legacy behavior:
     - column_count == 2: use `config/prompt_vertical/<prompt_filename>`
     - else: use `config/prompts/<prompt_filename>`
     """
+    prompt_free_path = Path("config") / "prompt_free" / prompt_filename
+    if prompt_free_path.exists():
+        return load_prompt(str(prompt_free_path))
+
     base_dir = Path("config") / ("prompt_vertical" if column_count == 2 else "prompts")
     return load_prompt(str(base_dir / prompt_filename))

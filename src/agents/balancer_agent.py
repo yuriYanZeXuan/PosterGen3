@@ -15,7 +15,9 @@ class BalancerAgent:
         from src.config.poster_config import load_config
         cfg = load_config()
         self.column_count = int(cfg.get("layout", {}).get("column_count", 3))
-        self.column_names = ["left", "right"] if self.column_count == 2 else ["left", "middle", "right"]
+        if self.column_count <= 0:
+            raise ValueError(f"layout.column_count must be a positive integer, got {self.column_count}")
+        self.column_ids = list(range(1, self.column_count + 1))
         self.balancer_prompt = load_prompt_by_column_count("layout_balancer.txt", self.column_count)
 
     def __call__(self, initial_layout_data: Dict, column_analysis: Dict, 
@@ -27,15 +29,25 @@ class BalancerAgent:
         structured_sections = state.get("structured_sections")
         story_board = state.get("story_board")
         
-        columns = column_analysis['columns']
-        left_rate = columns['left']['utilization_rate']
-        right_rate = columns['right']['utilization_rate']
-
-        if self.column_count == 2:
-            log_agent_info(self.name, f"utilization - left: {left_rate:.1%}, right: {right_rate:.1%}")
+        columns = column_analysis.get("columns", [])
+        # Support both legacy dict form and new list form.
+        if isinstance(columns, dict):
+            # Legacy: {"left": {...}, "middle": {...}, ...}
+            items = []
+            for k, v in columns.items():
+                items.append({"column_id": k, **(v or {})})
         else:
-            middle_rate = columns['middle']['utilization_rate']
-            log_agent_info(self.name, f"utilization - left: {left_rate:.1%}, middle: {middle_rate:.1%}, right: {right_rate:.1%}")
+            items = list(columns) if isinstance(columns, list) else []
+
+        # Build status markdown for N columns.
+        status_lines: List[str] = []
+        for col in items:
+            col_id = col.get("column_id")
+            util = col.get("utilization_rate", 0.0) or 0.0
+            status = col.get("status", "unknown")
+            status_lines.append(f"- **Column {col_id}**: {util:.1%} utilization - {status}")
+        column_status_markdown = "\n".join(status_lines) if status_lines else "- (no column data)"
+        log_agent_info(self.name, "utilization summary:\n" + column_status_markdown)
         
         agent = LangGraphAgent("layout optimization specialist", state["text_model"])
         
@@ -44,15 +56,9 @@ class BalancerAgent:
             "current_story_board": json.dumps(story_board, indent=2),
             "column_analysis": json.dumps(column_analysis, indent=2),
             "available_height": column_analysis["available_height"],
-            "left_utilization": f"{left_rate:.1%}",
-            "right_utilization": f"{right_rate:.1%}",
-            "left_status": columns['left']['status'],
-            "right_status": columns['right']['status']
+            "column_count": self.column_count,
+            "column_status_markdown": column_status_markdown,
         }
-
-        if self.column_count != 2:
-            variables["middle_utilization"] = f"{middle_rate:.1%}"
-            variables["middle_status"] = columns["middle"]["status"]
         
         prompt = self.balancer_prompt.format(**variables)
         response = agent.step(prompt)
@@ -90,7 +96,8 @@ class BalancerAgent:
                 return False
             if "column_assignment" not in section:
                 return False
-            if section["column_assignment"] not in self.column_names:
+            col = section.get("column_assignment")
+            if not isinstance(col, int) or not (1 <= col <= self.column_count):
                 return False
                 
         return True

@@ -19,7 +19,9 @@ class StoryBoardCurator:
         self.name = "spatial_content_planner"
         self.config = load_config()
         self.column_count = int(self.config.get("layout", {}).get("column_count", 3))
-        self.column_names = ["left", "right"] if self.column_count == 2 else ["left", "middle", "right"]
+        self.column_ids = list(range(1, self.column_count + 1))
+        # key visual is anchored in the "center-ish" column for readability
+        self.key_visual_column = (self.column_count + 1) // 2
 
         self.spatial_planning_prompt = load_prompt_by_column_count("spatial_content_planner.txt", self.column_count)
         self.validation_config = self.config["validation"]
@@ -86,7 +88,10 @@ class StoryBoardCurator:
             "available_tables": json.dumps({k: {"caption": v.get("caption", ""), "aspect": v.get("aspect", 1.0)} 
                                           for k, v in tables.items()}, indent=2),
             "available_height_per_column": visual_context["available_height_per_column"],
-            "visual_heights_info": json.dumps(visual_context["visual_assets_heights"], indent=2)
+            "visual_heights_info": json.dumps(visual_context["visual_assets_heights"], indent=2),
+            "column_count": self.column_count,
+            "column_ids": self.column_ids,
+            "key_visual_column": self.key_visual_column,
         }
         
         max_attempts = self.validation_config["max_llm_attempts"]
@@ -140,8 +145,12 @@ class StoryBoardCurator:
                     return False
             
             # check column assignment is valid
-            if section["column_assignment"] not in self.column_names:
-                log_agent_warning(self.name, f"validation error: section {i} invalid column_assignment")
+            col = section.get("column_assignment")
+            if not isinstance(col, int) or not (1 <= col <= self.column_count):
+                log_agent_warning(
+                    self.name,
+                    f"validation error: section {i} invalid column_assignment={col} (expected int 1..{self.column_count})",
+                )
                 return False
                 
             # check vertical priority is valid  
@@ -175,7 +184,7 @@ class StoryBoardCurator:
             if key_visual:
                 key_visual_found = False
                 key_visual_in_required_slot = False
-                required_column = "left" if self.column_count == 2 else "middle"
+                required_column = self.key_visual_column
                 
                 for section in sections:
                     visual_assets = section.get("visual_assets", [])
@@ -194,7 +203,10 @@ class StoryBoardCurator:
                     return False
                     
                 if not key_visual_in_required_slot:
-                    log_agent_warning(self.name, f"validation error: key_visual '{key_visual}' not placed in {required_column} column, top priority")
+                    log_agent_warning(
+                        self.name,
+                        f"validation error: key_visual '{key_visual}' not placed in column {required_column} (top priority)",
+                    )
                     return False
         
         # validate height exclusion compliance if visual_context provided
@@ -320,9 +332,9 @@ class StoryBoardCurator:
             return {"warnings": ["No sections found in story board"], "column_utilizations": {}}
         
         # organize sections by column
-        columns = {c: [] for c in self.column_names}
+        columns = {c: [] for c in self.column_ids}
         for section in sections:
-            column = section.get("column_assignment", "left")
+            column = section.get("column_assignment", 1)
             if column in columns:
                 columns[column].append(section)
         
@@ -371,14 +383,14 @@ class StoryBoardCurator:
             }
             
             if utilization > self.utilization_config["overflow_critical"]:
-                warnings.append(f"{column_name} column serious overflow: {utilization*100:.0f}% (visual density: {visual_density*100:.0f}%)")
+                warnings.append(f"column {column_name} serious overflow: {utilization*100:.0f}% (visual density: {visual_density*100:.0f}%)")
             elif utilization > self.utilization_config["overflow_warning"]:
-                warnings.append(f"{column_name} column minor overflow: {utilization*100:.0f}% (visual density: {visual_density*100:.0f}%)")
+                warnings.append(f"column {column_name} minor overflow: {utilization*100:.0f}% (visual density: {visual_density*100:.0f}%)")
             elif utilization < self.utilization_config["underutilized"]:
-                warnings.append(f"{column_name} column underutilized: {utilization*100:.0f}% (visual density: {visual_density*100:.0f}%)")
+                warnings.append(f"column {column_name} underutilized: {utilization*100:.0f}% (visual density: {visual_density*100:.0f}%)")
             
             if total_visuals == 0:
-                warnings.append(f"{column_name} column has no visuals - add visual assets")
+                warnings.append(f"column {column_name} has no visuals - add visual assets")
         
         return {
             "column_utilizations": column_utilizations,

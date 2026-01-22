@@ -21,7 +21,7 @@ class LayoutAgent:
         self.poster_margin = self.config["layout"]["poster_margin"]
         self.column_spacing = self.config["layout"]["column_spacing"]
         self.column_count = int(self.config.get("layout", {}).get("column_count", 3))
-        self.column_names = ["left", "right"] if self.column_count == 2 else ["left", "middle", "right"]
+        self.column_ids = list(range(1, self.column_count + 1))
         self.title_height_fraction = self.config["layout"]["title_height_fraction"]
         self.title_font_family = self.config["typography"]["fonts"]["title"]
         self.authors_font_family = self.config["typography"]["fonts"]["authors"]
@@ -200,7 +200,7 @@ class LayoutAgent:
         x_starts = [self.poster_margin + i * (column_width + self.column_spacing) for i in range(self.column_count)]
         boundaries = [(x_starts[i] + x_starts[i + 1]) / 2 for i in range(self.column_count - 1)]
 
-        columns = {name: [] for name in self.column_names}
+        columns_by_idx: List[List[Dict]] = [[] for _ in range(self.column_count)]
 
         # group elements by column using calculated column boundaries
         for element in layout_data:
@@ -213,16 +213,15 @@ class LayoutAgent:
                     break
                 col_idx += 1
             col_idx = min(col_idx, self.column_count - 1)
-            col_name = self.column_names[col_idx]
-            columns[col_name].append(element)
+            columns_by_idx[col_idx].append(element)
         
         # calculate utilization for each column
         column_analysis = {
             "available_height": available_height,
-            "columns": {}
+            "columns": []
         }
         
-        for col_name, elements in columns.items():
+        for col_idx, elements in enumerate(columns_by_idx):
             if elements:
                 max_bottom = max(elem["y"] + elem["height"] for elem in elements)
                 min_top = min(elem["y"] for elem in elements) 
@@ -234,13 +233,14 @@ class LayoutAgent:
             
             status = "overflow" if utilization_rate > 1.0 else "underutilized" if utilization_rate < 0.7 else "balanced"
             
-            column_analysis["columns"][col_name] = {
+            column_analysis["columns"].append({
+                "column_id": col_idx + 1,
                 "utilization_rate": utilization_rate,
                 "total_height": used_height,
                 "status": status,
                 "available_space": max(0, available_height - used_height),
                 "excess_height": max(0, used_height - available_height)
-            }
+            })
         
         return column_analysis
     
@@ -250,18 +250,21 @@ class LayoutAgent:
             raise ValueError("sections is None (invalid story_board: spatial_content_plan.sections)")
         if not isinstance(sections, list):
             raise TypeError(f"sections must be a list, got {type(sections)}")
-        columns = {c: [] for c in self.column_names}
+        columns = {c: [] for c in self.column_ids}
         
         for i, section in enumerate(sections):
             if section is None:
                 raise ValueError(f"sections[{i}] is None (LLM output must not contain null sections)")
             if not isinstance(section, dict):
                 raise TypeError(f"sections[{i}] must be dict, got {type(section)}")
-            column = section.get("column_assignment", "left")
-            if column in columns:
-                columns[column].append(section)
+            column = section.get("column_assignment", 1)
+            if not isinstance(column, int) or not (1 <= column <= self.column_count):
+                # be defensive: if upstream LLM output is invalid, default to first column
+                column = 1
+                section["column_assignment"] = column
+            columns[column].append(section)
         
-        column_assignments = [{"column_id": i, "sections": columns[name]} for i, name in enumerate(self.column_names)]
+        column_assignments = [{"column_id": col_id, "sections": columns[col_id]} for col_id in self.column_ids]
         
         return {
             "optimized_layout": {
@@ -345,13 +348,8 @@ class LayoutAgent:
     
     def _create_title_element(self, state: PosterState, poster_width: float, title_height: float) -> Dict:
         """create title element with exact positioning"""
-        # Horizontal (3 columns): keep legacy 2/3 span.
-        # Vertical (2 columns): span full usable width for better hierarchy.
-        if self.column_count == 2:
-            title_width = poster_width - 2 * self.poster_margin
-        else:
-            column_width = (poster_width - 2 * self.poster_margin - (self.column_count - 1) * self.column_spacing) / self.column_count
-            title_width = 2 * column_width + self.column_spacing  # 2 columns + 1 spacing
+        # For any column count, span the full usable width for a consistent hierarchy.
+        title_width = poster_width - 2 * self.poster_margin
         
         # extract title and authors from narrative content
         narrative = state.get("narrative_content", {})
@@ -634,16 +632,18 @@ class LayoutAgent:
         log_agent_info(self.name, "creating spatial layout with css-like precision")
         
         # organize sections by spatial assignment
-        columns = {c: {"sections": [], "total_height": 0.0} for c in self.column_names}
+        columns = {c: {"sections": [], "total_height": 0.0} for c in self.column_ids}
         
         for section in sections:
-            column = section.get("column_assignment", "left")
-            if column in columns:
-                columns[column]["sections"].append(section)
+            column = section.get("column_assignment", 1)
+            if not isinstance(column, int) or not (1 <= column <= self.column_count):
+                column = 1
+                section["column_assignment"] = column
+            columns[column]["sections"].append(section)
         
         log_agent_info(
             self.name,
-            "organized sections: " + ", ".join(f"{c}={len(columns[c]['sections'])}" for c in self.column_names),
+            "organized sections: " + ", ".join(f"col{c}={len(columns[c]['sections'])}" for c in self.column_ids),
         )
         
         # calculate precise heights for each section
@@ -657,11 +657,11 @@ class LayoutAgent:
         # return layout in expected format
         return [
             {
-                "column_id": i,
+                "column_id": c,
                 "sections": columns[c]["sections"],
                 "estimated_height": columns[c]["total_height"],
             }
-            for i, c in enumerate(self.column_names)
+            for c in self.column_ids
         ]
     
     def _calculate_precise_section_height(self, section: Dict, column_width: float, state: PosterState, available_height: float = None) -> float:

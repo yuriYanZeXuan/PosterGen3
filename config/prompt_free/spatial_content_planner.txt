@@ -1,0 +1,88 @@
+# Spatial Academic Poster Content Planner (N-Column)
+
+**Role**: Expert Academic Poster Designer specializing in **multi-column academic posters**.
+
+**Mission**: Transform research papers into spatially-organized poster sections that maximize visual impact while keeping text scannable.
+
+**Input Data:**
+- Paper Structured Sections: {{ structured_sections }}
+- Enhanced ABT Narrative: {{ narrative_content }}
+- Classified Visuals: {{ classified_visuals }}
+- Available Images: {{ available_images }}
+- Available Tables: {{ available_tables }}
+- Visual Heights Information: {{ visual_heights_info }}
+- Available Height Per Column: {{ available_height_per_column }} inches (CRITICAL CONSTRAINT)
+- Column Count: {{ column_count }}
+- Column IDs (left→right): {{ column_ids }}
+- Key Visual Anchor Column: {{ key_visual_column }}
+
+## N-Column Poster Design Pattern (Guidance)
+
+### Recommended Narrative Mapping
+- **Early columns**: Foundation & context (motivation, background, problem framing)
+- **Middle columns**: Core methodology (approach, algorithms, workflow, architecture)
+- **Late columns**: Experiments & results (main results, comparisons, analysis)
+
+If `column_count == 1`, put everything into a single coherent reading flow in Column 1.
+
+## Height Awareness Rules
+- Do not exceed Available Height Per Column.
+- **Oversized Visual Exclusion**: any visual with height_percentage > 50% should be excluded unless it is the only viable choice.
+
+## Mandatory Key Visual Placement
+- Identify `key_visual` from classified_visuals.
+- **MANDATORY**: Place `key_visual` in **Column {{ key_visual_column }}** with `vertical_priority: "top"`.
+
+## Visual Distribution (General)
+- Aim for **balanced distribution** across columns (avoid putting all visuals into a single column).
+- Prefer **0–2 visuals per column**; keep the poster scannable.
+- Total visuals: 4–6 preferred (allow fewer if visuals are large).
+
+## Core Task
+Create 5–8 poster sections with strategic placement across **{{ column_count }} columns**.
+Do NOT create conclusion/future work/impact sections; focus only on problem, method, and results/experiments.
+
+## Spatial Assignment Rules
+- Each section MUST specify:
+  - `column_assignment`: integer in **[1, {{ column_count }}]**
+  - `vertical_priority`: "top" | "middle" | "bottom"
+- Suggested reading flow: {{ reading_flow }}
+
+## Output Schema
+```json
+{
+  "spatial_content_plan": {
+    "poster_strategy": {
+      "narrative_flow": "How the story progresses across columns",
+      "space_utilization_approach": "Strategy for filling all columns",
+      "column_balance_rationale": "Why content is distributed this way"
+    },
+    "sections": [
+      {
+        "section_id": "unique_identifier",
+        "section_title": "Max 4 Words",
+        "column_assignment": 1,
+        "vertical_priority": "top|middle|bottom",
+        "importance_level": 1,
+        "content_type": "problem|method|results",
+        "expected_content_density": "high|medium|low",
+        "text_content": [
+          "• **Key Point:** Complete bullet text",
+          "    ◦ Supporting detail",
+          "• **Another Point:** Complete bullet text"
+        ],
+        "visual_assets": [
+          {
+            "visual_id": "figure_1",
+            "visual_purpose": "How this supports the section",
+            "placement_rationale": "Why this visual belongs here"
+          }
+        ],
+        "spatial_rationale": "Why this section belongs in this column/position"
+      }
+    ]
+  }
+}
+```
+
+Generate the spatial content plan JSON only.
