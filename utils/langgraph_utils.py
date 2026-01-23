@@ -276,9 +276,42 @@ def extract_json(response: str) -> Dict[str, Any]:
         raise ValueError(f"failed to parse json: {e}")
 
 
-def load_prompt(path: str) -> str:
-    """load prompt template from file"""
-    with open(path, 'r', encoding='utf-8') as f:
+def load_prompt(path: str, column_count: Optional[int] = None) -> str:
+    """
+    Load prompt template from file, with unified prompt resolution.
+
+    Priority:
+    1) If `config/prompt_free/<prompt_filename>` exists, use it (unified prompts).
+    2) If `path` exists as provided, use it.
+    3) Fallback to legacy behavior (requires `column_count`):
+       - column_count == 2: `config/prompt_vertical/<prompt_filename>`
+       - else: `config/prompts/<prompt_filename>`
+    """
+    p = Path(path)
+    prompt_filename = p.name
+
+    # 1) Prefer unified prompt_free variant when present.
+    prompt_free_path = Path("config") / "prompt_free" / prompt_filename
+    if prompt_free_path.exists():
+        with open(prompt_free_path, "r", encoding="utf-8") as f:
+            return f.read()
+
+    # 2) If the provided path exists, load it directly.
+    if p.exists():
+        with open(p, "r", encoding="utf-8") as f:
+            return f.read()
+
+    # 3) Fallback to legacy prompt folders.
+    if column_count is None:
+        raise FileNotFoundError(
+            f"prompt not found: {path} (also missing config/prompt_free/{prompt_filename}); "
+            f"provide column_count to enable legacy fallback"
+        )
+    base_dir = Path("config") / ("prompt_vertical" if int(column_count) == 2 else "prompts")
+    fallback_path = base_dir / prompt_filename
+    if not fallback_path.exists():
+        raise FileNotFoundError(f"prompt not found: {fallback_path}")
+    with open(fallback_path, "r", encoding="utf-8") as f:
         return f.read()
 
 
@@ -292,9 +325,5 @@ def load_prompt_by_column_count(prompt_filename: str, column_count: int) -> str:
     - column_count == 2: use `config/prompt_vertical/<prompt_filename>`
     - else: use `config/prompts/<prompt_filename>`
     """
-    prompt_free_path = Path("config") / "prompt_free" / prompt_filename
-    if prompt_free_path.exists():
-        return load_prompt(str(prompt_free_path))
-
-    base_dir = Path("config") / ("prompt_vertical" if column_count == 2 else "prompts")
-    return load_prompt(str(base_dir / prompt_filename))
+    # Backward-compatible wrapper. Prefer calling `load_prompt(..., column_count=...)` directly.
+    return load_prompt(prompt_filename, column_count=column_count)

@@ -94,7 +94,7 @@ class FontAgent:
             if element.get("type") == "title":
                 self._apply_title_styling(styled_element, colors)
             
-            elif element.get("type") in ["section_title", "title_accent_block", "title_accent_line"]:
+            elif element.get("type") in ["section_title", "title_accent_block", "title_accent_line", "title_accent_curve"]:
                 # these are handled by the section title designer
                 pass
             

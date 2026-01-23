@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Dict, Any, Tuple
 
 from src.state.poster_state import PosterState
-from utils.langgraph_utils import LangGraphAgent, extract_json, load_prompt
+from utils.langgraph_utils import LangGraphAgent, extract_json, load_prompt, load_prompt_by_column_count
 from utils.src.logging_utils import log_agent_info, log_agent_success, log_agent_error, log_agent_warning
 from src.config.poster_config import load_config
 
@@ -33,10 +33,14 @@ class ColorAgent:
             raise FileNotFoundError(f"affiliation logo not found: {aff_logo_path}")
         
         log_agent_info(self.name, "extracting theme from affiliation logo")
-        theme_color = self._extract_theme_from_logo(aff_logo_path, state)
+        theme_color, theme_meta = self._extract_theme_from_logo(aff_logo_path, state)
         
         color_scheme = self._generate_color_scheme(theme_color)
         color_scheme = self._add_contrast_color(color_scheme)
+
+        # Carry forward theme-driven style decisions (safe to store alongside color keys).
+        if theme_meta:
+            color_scheme.update(theme_meta)
         
         state["color_scheme"] = color_scheme
         state["current_agent"] = self.name
@@ -47,7 +51,7 @@ class ColorAgent:
 
         return state
 
-    def _extract_theme_from_logo(self, logo_path: str, state: PosterState) -> str:
+    def _extract_theme_from_logo(self, logo_path: str, state: PosterState) -> Tuple[str, Dict[str, Any]]:
         """extract theme color from affiliation logo using vision LLM"""
         log_agent_info(self.name, f"analyzing affiliation logo: {Path(logo_path).name}")
 
@@ -80,8 +84,24 @@ class ColorAgent:
         
         if result.get("adjustment_made") != "none":
             log_agent_info(self.name, f"color adjusted: {result.get('adjustment_made')}")
-        
-        return extracted_color
+
+        # Optional style decisions (defaults keep current behavior).
+        title_accent_style = result.get("title_accent_style", "title_accent_block")
+        if title_accent_style not in {"title_accent_block", "title_accent_line", "title_accent_curve"}:
+            log_agent_warning(self.name, f"invalid title_accent_style={title_accent_style}, defaulting to title_accent_block")
+            title_accent_style = "title_accent_block"
+
+        section_container_shape = result.get("section_container_shape", "rectangle")
+        if section_container_shape not in {"rectangle", "rounded_rectangle"}:
+            log_agent_warning(self.name, f"invalid section_container_shape={section_container_shape}, defaulting to rectangle")
+            section_container_shape = "rectangle"
+
+        theme_meta = {
+            "title_accent_style": title_accent_style,
+            "section_container_shape": section_container_shape,
+        }
+
+        return extracted_color, theme_meta
 
     def _extract_theme_from_visuals(self, state: PosterState) -> str:
         """fallback: extract theme from key visuals"""

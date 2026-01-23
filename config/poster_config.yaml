@@ -4,7 +4,7 @@ layout:
   # dimensions (inches)
   poster_margin: 1.0
   # number of content columns: 3 (horizontal) or 2 (vertical)
-  column_count: 1
+  column_count: 4
   column_spacing: 1.0
   title_height_fraction: 0.18     # fraction of ( title height / effective height)
   

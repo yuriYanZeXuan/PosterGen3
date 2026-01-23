@@ -103,6 +103,7 @@ class Renderer:
             "section_title": self._render_section_title,
             "title_accent_block": self._render_title_accent_block,
             "title_accent_line": self._render_title_accent_line,
+            "title_accent_curve": self._render_title_accent_curve,
             "conf_logo": self._render_conf_logo,
             "aff_logo": self._render_aff_logo,
             "section_container": self._render_section_container,
@@ -234,16 +235,47 @@ class Renderer:
         line.fill.fore_color.rgb = self._parse_color(fill_color)
         line.line.fill.background()  # no border
 
+    def _render_title_accent_curve(self, slide, element: Dict, state: PosterState):
+        """render arched curve accent under section titles"""
+        x, y, w, h = (Inches(element[k]) for k in ["x", "y", "width", "height"])
+
+        stroke_color = element.get("color", element.get("stroke_color", "#E8E8E8"))
+        stroke_width_pt = element.get("line_width_pt", element.get("stroke_width_pt", 3))
+
+        log_agent_info(self.name, f"rendering title accent curve: {stroke_color} at ({x.inches:.2f}, {y.inches:.2f})")
+
+        # Use ARC shape as a best-effort "arch" curve.
+        arc_shape = getattr(MSO_SHAPE, "ARC", None)
+        if arc_shape is None:
+            # Fallback: render as a thin line block if ARC is unavailable.
+            line = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, x, y, w, Inches(max(2 / 72, 0.05)))
+            line.fill.solid()
+            line.fill.fore_color.rgb = self._parse_color(stroke_color)
+            line.line.fill.background()
+            return
+
+        arc = slide.shapes.add_shape(arc_shape, x, y, w, h)
+        arc.fill.background()
+        arc.line.color.rgb = self._parse_color(stroke_color)
+        arc.line.width = Pt(stroke_width_pt)
+
     def _render_section_container(self, slide, element: Dict, state: PosterState):
         """render section container with optional debug border and mono_light background for critical sections"""
+        # Only dispatch based on requested container shape.
+        if element.get("container_shape") == "rounded_rectangle":
+            return self._render_section_container_rounded(slide, element, state)
+        return self._render_section_container_rect(slide, element, state)
+
+    def _render_section_container_rect(self, slide, element: Dict, state: PosterState):
+        """render section container as normal rectangle (optional debug border, mono_light bg for critical)"""
         x, y, w, h = (Inches(element[k]) for k in ["x", "y", "width", "height"])
-        
+
         is_debug = element.get("debug_border", False)
         importance_level = element.get("importance_level", 2)
-        
+
         # create base rectangle
         container = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, x, y, w, h)
-        
+
         # apply background fill based on importance level
         if importance_level == 1:
             # critical section gets mono_light background color
@@ -255,13 +287,41 @@ class Renderer:
         else:
             # non-critical sections remain transparent
             container.fill.background()
-        
+
         # apply border based on debug mode
         if is_debug:
             # prominent debug border
             container.line.color.rgb = RGBColor(255, 0, 0)  # red border
             container.line.width = Pt(2)
             log_agent_info(self.name, f"added debug section border")
+        else:
+            container.line.fill.background()
+
+    def _render_section_container_rounded(self, slide, element: Dict, state: PosterState):
+        """render section container as rounded rectangle (optional debug border, mono_light bg for critical)"""
+        x, y, w, h = (Inches(element[k]) for k in ["x", "y", "width", "height"])
+
+        is_debug = element.get("debug_border", False)
+        importance_level = element.get("importance_level", 2)
+
+        rounded = getattr(MSO_SHAPE, "ROUNDED_RECTANGLE", MSO_SHAPE.RECTANGLE)
+        container = slide.shapes.add_shape(rounded, x, y, w, h)
+
+        # background fill
+        if importance_level == 1:
+            color_scheme = state.get("color_scheme", {})
+            mono_light = color_scheme.get("mono_light", "#e6eaef")
+            container.fill.solid()
+            container.fill.fore_color.rgb = self._parse_color(mono_light)
+            log_agent_info(self.name, f"applied mono_light background ({mono_light}) to critical section (rounded)")
+        else:
+            container.fill.background()
+
+        # border
+        if is_debug:
+            container.line.color.rgb = RGBColor(255, 0, 0)
+            container.line.width = Pt(2)
+            log_agent_info(self.name, f"added debug section border (rounded)")
         else:
             container.line.fill.background()
 

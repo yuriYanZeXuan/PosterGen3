@@ -332,6 +332,11 @@ class LayoutAgent:
                     "importance_level": section.get("importance_level", 2),  # importance level for background styling
                     "priority": 0.1
                 }
+
+                # Theme-driven container shape (rectangle vs rounded_rectangle).
+                container_shape = state["color_scheme"].get("section_container_shape", "rectangle")
+                if container_shape in {"rectangle", "rounded_rectangle"}:
+                    section_container["container_shape"] = container_shape
                 
                 # add debug border only if enabled
                 if self.show_debug_borders:
@@ -540,22 +545,33 @@ class LayoutAgent:
         
         # apply user-requested coordinate modifications
         rect_y_offset = 10 / 72  # 10pt converted to inches
-        title_x_offset = rect_height  # offset by rectangle height
+        # Theme-driven accent choice (defaults to current left-block style).
+        color_scheme = state.get("color_scheme", {}) or {}
+        accent_type = color_scheme.get("title_accent_style", "title_accent_block")
+        if accent_type not in {"title_accent_block", "title_accent_line", "title_accent_curve"}:
+            accent_type = "title_accent_block"
+
+        # Only the left-block accent needs title x-offset.
+        title_x_offset = rect_height if accent_type == "title_accent_block" else 0.0
         
-        # create rectangle background element with y offset
-        rectangle_element = {
-            "type": "title_accent_block",
-            "x": base_title_x,
-            "y": start_y + rect_y_offset,  # user modification: y + 10pt
-            "width": rect_width,
-            "height": rect_height,
-            "color": accent_styling.get("color", "#335f91"),
-            "priority": 0.7
-        }
-        elements.append(rectangle_element)
-        
-        # adjust title content (add 4 spaces prefix for rectangle_left template)
-        display_title = "    " + section_title
+        # Create accent element (type/geometry depends on accent_type).
+        accent_color = accent_styling.get("color", "#335f91")
+        if accent_type == "title_accent_block":
+            elements.append({
+                "type": "title_accent_block",
+                "x": base_title_x,
+                "y": start_y + rect_y_offset,  # user modification: y + 10pt
+                "width": rect_width,
+                "height": rect_height,
+                "color": accent_color,
+                "priority": 0.7
+            })
+
+            # adjust title content (add 4 spaces prefix for rectangle_left template)
+            display_title = "    " + section_title
+        else:
+            # line/curve accents sit under the title text (no left indent).
+            display_title = section_title
         
         # create title element with x offset using precise font-based height
         precise_title_height = section_title_font_size / 72  # pt to inches
@@ -575,6 +591,36 @@ class LayoutAgent:
             "priority": 0.8
         }
         elements.append(title_element)
+
+        # If we chose a line/curve accent, add it beneath the title textbox.
+        if accent_type in {"title_accent_line", "title_accent_curve"}:
+            underline_gap = 8 / 72  # 8pt gap
+            underline_y = start_y + precise_title_height + underline_gap
+            underline_x = base_title_x  # align with title box left
+            underline_w = title_width
+
+            if accent_type == "title_accent_line":
+                elements.append({
+                    "type": "title_accent_line",
+                    "x": underline_x,
+                    "y": underline_y,
+                    "width": underline_w,
+                    "height": max(2 / 72, rect_height * 0.10),  # thin bar
+                    "color": accent_color,
+                    "priority": 0.75
+                })
+            else:
+                # An arch curve: bounding box controls arc curvature.
+                elements.append({
+                    "type": "title_accent_curve",
+                    "x": underline_x,
+                    "y": underline_y,
+                    "width": underline_w,
+                    "height": max(12 / 72, rect_height * 0.45),
+                    "color": accent_color,
+                    "line_width_pt": 3,
+                    "priority": 0.75
+                })
         
         return elements
     

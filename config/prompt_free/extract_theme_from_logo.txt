@@ -34,11 +34,23 @@ Return ONLY a JSON object with the following structure:
   "color_name": "Professional Navy Blue",
   "adjustment_made": "reduced_brightness | lightened | none",
   "original_color": "#0000FF",
+  "title_accent_style": "title_accent_block | title_accent_line | title_accent_curve",
+  "section_container_shape": "rectangle | rounded_rectangle",
   "suitability_score": 8.5,
   "reasoning": "Extracted the primary blue from the university emblem. Reduced brightness from bright blue to professional navy to ensure readability and sophisticated appearance on white backgrounds.",
   "usage_notes": "Excellent for text highlights, section headers, and accent elements. Provides strong contrast while maintaining professional appearance."
 }
 ```
+
+**Layout/Style Decision Guidance (must fill the two fields):**
+- **title_accent_style**:
+  - Choose `title_accent_block` for strong, modern hierarchy (bold left accent block).
+  - Choose `title_accent_line` for minimal, clean style (thin underline).
+  - Choose `title_accent_curve` for softer, friendly style (arched curve under the title text).
+- **section_container_shape**:
+  - Choose `rounded_rectangle` for modern, friendly, less rigid section boundaries.
+  - Choose `rectangle` for a stricter, more technical look.
+  - If unsure, default to `rounded_rectangle`.
 
 **Scoring Criteria (1-10 scale):**
 - **Contrast/Readability**: How well it works on white background
