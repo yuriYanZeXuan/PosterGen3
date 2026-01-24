@@ -1,5 +1,5 @@
 HOST="127.0.0.1"
-PORT="9101"
+PORT="9106"
 BASE="http://${HOST}:${PORT}"
 
 SERVER_PID=""

@@ -33,6 +33,11 @@ os.chdir(PROJECT_ROOT)
 ZIMAGE_MODEL_PATH = "/mnt/tidalfs-bdsz01/usr/tusen/yanzexuan/weight/Z-Image"
 QWEN_EDIT_MODEL_ID = "/mnt/tidalfs-bdsz01/usr/tusen/yanzexuan/weight/qwen_edit_2511"
 
+# Hard-coded device placement to avoid OOM.
+# Z-Image -> cuda:0, Qwen-Edit -> cuda:1 (if available).
+ZIMAGE_DEVICE = "cuda:0"
+QWEN_EDIT_DEVICE = "cuda:1"
+
 
 app = FastAPI(title="PosterGen Local Image API", version="0.1.0")
 
@@ -47,8 +52,19 @@ def _ensure_out_dir(out_dir: Optional[str]) -> Path:
     return d
 
 
-def _device() -> str:
-    return "cuda" if torch.cuda.is_available() else "cpu"
+def _resolve_device(preferred: str) -> str:
+    """Resolve a preferred CUDA device string, with minimal fallback."""
+    if not torch.cuda.is_available():
+        return "cpu"
+    if preferred.startswith("cuda:"):
+        try:
+            idx = int(preferred.split(":")[1])
+        except Exception:
+            return "cuda:0"
+        if torch.cuda.device_count() > idx:
+            return preferred
+        return "cuda:0"
+    return "cuda:0"
 
 
 _ZIMAGE_PIPE: Any = None
@@ -67,12 +83,13 @@ def _load_zimage() -> Any:
     if not Path(model_path).exists():
         raise RuntimeError(f"Z-Image model path does not exist: {model_path}")
 
+    device = _resolve_device(ZIMAGE_DEVICE)
     pipe = ZImagePipeline.from_pretrained(
         model_path,
         torch_dtype=torch.bfloat16,
         low_cpu_mem_usage=False,
     )
-    pipe.to(_device())
+    pipe.to(device)
     _ZIMAGE_PIPE = pipe
     return _ZIMAGE_PIPE
 
@@ -86,8 +103,9 @@ def _load_qwen_edit() -> Any:
     from diffusers import QwenImageEditPlusPipeline
 
     model_id = QWEN_EDIT_MODEL_ID
+    device = _resolve_device(QWEN_EDIT_DEVICE)
     pipe = QwenImageEditPlusPipeline.from_pretrained(model_id, torch_dtype=torch.bfloat16)
-    pipe.to(_device())
+    pipe.to(device)
     pipe.set_progress_bar_config(disable=None)
     _QWEN_EDIT_PIPE = pipe
     return _QWEN_EDIT_PIPE
@@ -131,7 +149,15 @@ class GenerateRequest(BaseModel):
 
 @app.get("/health")
 def health() -> Dict[str, Any]:
-    return {"ok": True, "device": _device()}
+    return {
+        "ok": True,
+        "cuda_available": torch.cuda.is_available(),
+        "cuda_device_count": torch.cuda.device_count() if torch.cuda.is_available() else 0,
+        "zimage_device": _resolve_device(ZIMAGE_DEVICE),
+        "qwen_edit_device": _resolve_device(QWEN_EDIT_DEVICE),
+        "zimage_loaded": _ZIMAGE_PIPE is not None,
+        "qwen_edit_loaded": _QWEN_EDIT_PIPE is not None,
+    }
 
 
 @app.post("/v1/generate")
@@ -142,7 +168,7 @@ def generate(req: GenerateRequest) -> Dict[str, Any]:
     out_dir = _ensure_out_dir(req.out_dir)
     pipe = _load_zimage()
 
-    g = torch.Generator(_device()).manual_seed(int(req.seed))
+    g = torch.Generator(_resolve_device(ZIMAGE_DEVICE)).manual_seed(int(req.seed))
     with torch.inference_mode():
         out = pipe(
             prompt=req.prompt,
@@ -216,7 +242,7 @@ async def edit(
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", type=str, default="127.0.0.1")
-    parser.add_argument("--port", type=int, default=9101)
+    parser.add_argument("--port", type=int, default=9106)
     args = parser.parse_args()
 
     import uvicorn
