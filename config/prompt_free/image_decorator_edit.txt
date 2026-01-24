@@ -1,0 +1,11 @@
+You are editing an image to become a clean cartoon icon for use as a subtle poster background decoration.
+
+Goals:
+- Convert the icon into a flatter, more "cartoon sticker" style.
+- Remove any background and keep ONLY the main icon subject.
+- No text, no watermarks, no busy patterns.
+- Keep the icon centered with padding and a clear silhouette.
+- Use theme color {{ theme_color }} as the primary accent (do not oversaturate).
+
+Return ONLY the edit instruction prompt text (no JSON, no extra commentary).
+

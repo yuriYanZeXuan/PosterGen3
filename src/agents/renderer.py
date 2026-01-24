@@ -272,6 +272,7 @@ class Renderer:
 
         is_debug = element.get("debug_border", False)
         importance_level = element.get("importance_level", 2)
+        section_id = element.get("section_id")
 
         # create base rectangle
         container = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, x, y, w, h)
@@ -297,12 +298,15 @@ class Renderer:
         else:
             container.line.fill.background()
 
+        self._maybe_add_decorative_background(slide, section_id, x, y, w, h, state)
+
     def _render_section_container_rounded(self, slide, element: Dict, state: PosterState):
         """render section container as rounded rectangle (optional debug border, mono_light bg for critical)"""
         x, y, w, h = (Inches(element[k]) for k in ["x", "y", "width", "height"])
 
         is_debug = element.get("debug_border", False)
         importance_level = element.get("importance_level", 2)
+        section_id = element.get("section_id")
 
         rounded = getattr(MSO_SHAPE, "ROUNDED_RECTANGLE", MSO_SHAPE.RECTANGLE)
         container = slide.shapes.add_shape(rounded, x, y, w, h)
@@ -324,6 +328,31 @@ class Renderer:
             log_agent_info(self.name, f"added debug section border (rounded)")
         else:
             container.line.fill.background()
+
+        self._maybe_add_decorative_background(slide, section_id, x, y, w, h, state)
+
+    def _maybe_add_decorative_background(self, slide, section_id, x, y, w, h, state: PosterState):
+        """Optionally add a decorative RGBA PNG as section background."""
+        if not section_id:
+            return
+        deco = state.get("decorative_backgrounds") or {}
+        if not isinstance(deco, dict) or not deco.get("enabled"):
+            return
+        sections = deco.get("sections") or {}
+        if not isinstance(sections, dict):
+            return
+        img_path = sections.get(str(section_id))
+        if not img_path:
+            return
+        try:
+            p = Path(str(img_path))
+            if not p.exists():
+                return
+            # Place the PNG to cover the container area; alpha keeps it subtle.
+            slide.shapes.add_picture(str(p), x, y, width=w, height=h)
+        except Exception:
+            # Decorative background must never break rendering.
+            return
 
     def _render_text(self, slide, element: Dict, state: PosterState):
         """render text elements with enhanced formatting"""

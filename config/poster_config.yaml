@@ -138,6 +138,18 @@ rendering:
   logo_spacing: 0.5               # inches
   logo_margin: 0.2
   debug_borders: False
+
+  # Decorative background icons (generated/edited via local FastAPI image server)
+  decorative_backgrounds:
+    enabled: False
+    # Local image server base URL (see `dev/image_server.py`)
+    server_url: "http://127.0.0.1:9106"
+    # Generate one icon, split into 4 quadrants, assign to N smallest section containers.
+    num_sections: 3
+    # Quadrant assignment strategy: cycle | random
+    quadrant_strategy: "cycle"
+    # Size of generated icon image (pixels)
+    icon_size: 768
   slide_layout_index: 6           # blank slide
   default_shape_fill: "#FFFFFF"
 

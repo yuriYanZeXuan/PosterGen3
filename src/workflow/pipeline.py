@@ -23,6 +23,7 @@ from src.agents.layout_with_balancer import layout_with_balancer_node as layout_
 from src.agents.section_title_designer import section_title_designer_node
 from src.agents.color_agent import color_agent_node
 from src.agents.font_agent import font_agent_node
+from src.agents.image_decorator_agent import image_decorator_agent_node
 from src.agents.renderer import renderer_node
 from utils.src.logging_utils import log_agent_info, log_agent_success, log_agent_error
 
@@ -40,6 +41,7 @@ def create_workflow_graph() -> StateGraph:
     graph.add_node("section_title_designer", section_title_designer_node)
     graph.add_node("layout_optimizer", layout_optimizer_node)
     graph.add_node("font_agent", font_agent_node)
+    graph.add_node("image_decorator_agent", image_decorator_agent_node)
     graph.add_node("renderer", renderer_node)
     
     # workflow: parser -> story board -> color -> title design -> layout -> font -> render
@@ -49,7 +51,8 @@ def create_workflow_graph() -> StateGraph:
     graph.add_edge("color_agent", "section_title_designer")
     graph.add_edge("section_title_designer", "layout_optimizer")
     graph.add_edge("layout_optimizer", "font_agent")
-    graph.add_edge("font_agent", "renderer")
+    graph.add_edge("font_agent", "image_decorator_agent")
+    graph.add_edge("image_decorator_agent", "renderer")
     graph.add_edge("renderer", END)
     
     return graph

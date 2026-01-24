@@ -64,6 +64,9 @@ class PosterState(TypedDict):
     color_scheme: Optional[Dict[str, str]]
     keywords: Optional[Dict[str, Any]]
     styled_layout: Optional[List[Dict[str, Any]]]
+
+    # decorative backgrounds (optional)
+    decorative_backgrounds: Optional[Dict[str, Any]]
     
     # poster assets
     url: str
@@ -131,6 +134,7 @@ def create_state(pdf_path: str, text_model: str = "gpt-4.1-2025-04-14", vision_m
         color_scheme=None,
         keywords=None,
         styled_layout=None,
+        decorative_backgrounds=None,
         url=url,
         logo_path=logo_path,
         aff_logo_path=aff_logo_path,

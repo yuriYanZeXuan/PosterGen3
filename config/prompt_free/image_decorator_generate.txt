@@ -1,0 +1,11 @@
+Generate a single, clean, cute CARTOON ICON that can be used as a subtle decorative background element in an academic poster.
+
+Requirements:
+- Style: flat/modern cartoon icon, simple shapes, clean edges, high readability.
+- Background: plain (ideally solid light background), no text, no watermark, no logo marks.
+- Composition: centered icon with generous padding/margins.
+- Color: harmonize with the theme color {{ theme_color }} (use it as the main accent).
+- Subject: abstract but relevant to academic research (e.g., lightbulb, atom, graph, microscope, network, chip, neural network, paper, etc.).
+
+Return ONLY the prompt text for the image generation model (no JSON, no extra commentary).
+
