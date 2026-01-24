@@ -1,5 +1,3 @@
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-
 # 写死本地权重路径（按你的机器目录）
 export ZIMAGE_MODEL_PATH="/mnt/tidalfs-bdsz01/usr/tusen/yanzexuan/weight/Z-Image"
 export QWEN_EDIT_MODEL_ID="/mnt/tidalfs-bdsz01/usr/tusen/yanzexuan/weight/qwen_edit_2511"
@@ -10,7 +8,8 @@ BASE="http://${HOST}:${PORT}"
 
 SERVER_PID=""
 if ! curl -fsS "$BASE/health" >/dev/null 2>&1; then
-  python3 "$ROOT_DIR/dev/image_server.py" --host "$HOST" --port "$PORT" &
+  # 约定：从 PosterGen3/dev 目录执行（相对路径）
+  python3 "./image_server.py" --host "$HOST" --port "$PORT" &
   SERVER_PID="$!"
   trap '[[ -n "${SERVER_PID:-}" ]] && kill "$SERVER_PID" >/dev/null 2>&1 || true' EXIT INT TERM
 fi
