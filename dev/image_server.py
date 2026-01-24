@@ -11,6 +11,7 @@ Edit results are post-processed to remove background and saved as RGBA PNG.
 from __future__ import annotations
 
 import argparse
+import io
 import os
 import sys
 import uuid
@@ -27,6 +28,10 @@ from PIL import Image
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 os.chdir(PROJECT_ROOT)
+
+# Hard-coded local model paths (no env vars needed).
+ZIMAGE_MODEL_PATH = "/mnt/tidalfs-bdsz01/usr/tusen/yanzexuan/weight/Z-Image"
+QWEN_EDIT_MODEL_ID = "/mnt/tidalfs-bdsz01/usr/tusen/yanzexuan/weight/qwen_edit_2511"
 
 
 app = FastAPI(title="PosterGen Local Image API", version="0.1.0")
@@ -58,14 +63,7 @@ def _load_zimage() -> Any:
 
     from diffusers import ZImagePipeline
 
-    model_path = os.getenv("ZIMAGE_MODEL_PATH", "").strip()
-    if not model_path:
-        # Keep the original reference default as a hint, but don't assume it exists.
-        model_path = os.getenv("MODEL_PATH", "").strip()
-    if not model_path:
-        raise RuntimeError(
-            "ZIMAGE_MODEL_PATH is not set. Please export ZIMAGE_MODEL_PATH to your local Z-Image weights directory."
-        )
+    model_path = ZIMAGE_MODEL_PATH
     if not Path(model_path).exists():
         raise RuntimeError(f"Z-Image model path does not exist: {model_path}")
 
@@ -87,7 +85,7 @@ def _load_qwen_edit() -> Any:
 
     from diffusers import QwenImageEditPlusPipeline
 
-    model_id = os.getenv("QWEN_EDIT_MODEL_ID", "Qwen/Qwen-Image-Edit-2511").strip()
+    model_id = QWEN_EDIT_MODEL_ID
     pipe = QwenImageEditPlusPipeline.from_pretrained(model_id, torch_dtype=torch.bfloat16)
     pipe.to(_device())
     pipe.set_progress_bar_config(disable=None)
@@ -227,8 +225,5 @@ def main():
 
 
 if __name__ == "__main__":
-    # Local imports used in optional code paths
-    import io
-
     main()
 

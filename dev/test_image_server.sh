@@ -1,7 +1,3 @@
-# 写死本地权重路径（按你的机器目录）
-export ZIMAGE_MODEL_PATH="/mnt/tidalfs-bdsz01/usr/tusen/yanzexuan/weight/Z-Image"
-export QWEN_EDIT_MODEL_ID="/mnt/tidalfs-bdsz01/usr/tusen/yanzexuan/weight/qwen_edit_2511"
-
 HOST="127.0.0.1"
 PORT="9101"
 BASE="http://${HOST}:${PORT}"
