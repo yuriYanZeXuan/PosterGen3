@@ -4,7 +4,7 @@ layout:
   # dimensions (inches)
   poster_margin: 1.0
   # number of content columns: 3 (horizontal) or 2 (vertical)
-  column_count: 4
+  column_count: 2
   column_spacing: 1.0
   title_height_fraction: 0.18     # fraction of ( title height / effective height)
   
@@ -141,7 +141,7 @@ rendering:
 
   # Decorative background icons (generated/edited via local FastAPI image server)
   decorative_backgrounds:
-    enabled: False
+    enabled: True
     # Local image server base URL (see `dev/image_server.py`)
     server_url: "http://127.0.0.1:9106"
     # Generate one icon, split into 4 quadrants, assign to N smallest section containers.

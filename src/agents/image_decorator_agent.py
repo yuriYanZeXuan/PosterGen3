@@ -36,6 +36,7 @@ class ImageDecoratorAgent:
 
     def __call__(self, state: PosterState) -> PosterState:
         enabled = bool(self.render_cfg.get("enabled", False))
+        log_agent_info(self.name, f"called (enabled={enabled})")
         if not enabled:
             state["decorative_backgrounds"] = {"enabled": False}
             state["current_agent"] = self.name
