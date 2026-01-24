@@ -1,15 +1,23 @@
+
 #!/usr/bin/env bash
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-HOST="${HOST:-127.0.0.1}"
-PORT="${PORT:-9101}"
+
+# 写死本地权重路径（按你的机器目录）
+export ZIMAGE_MODEL_PATH="/mnt/tidalfs-bdsz01/usr/tusen/yanzexuan/weight/Z-Image"
+export QWEN_EDIT_MODEL_ID="/mnt/tidalfs-bdsz01/usr/tusen/yanzexuan/weight/qwen_edit_2511"
+
+HOST="127.0.0.1"
+PORT="9101"
 BASE="http://${HOST}:${PORT}"
 
-python3 "$ROOT_DIR/dev/image_server.py" --host "$HOST" --port "$PORT" &
-SERVER_PID=$!
-
-trap 'kill "$SERVER_PID" >/dev/null 2>&1 || true' EXIT
+SERVER_PID=""
+if ! curl -fsS "$BASE/health" >/dev/null 2>&1; then
+  python3 "$ROOT_DIR/dev/image_server.py" --host "$HOST" --port "$PORT" &
+  SERVER_PID="$!"
+  trap '[[ -n "${SERVER_PID:-}" ]] && kill "$SERVER_PID" >/dev/null 2>&1 || true' EXIT INT TERM
+fi
 
 for _ in {1..60}; do curl -fsS "$BASE/health" >/dev/null && break; sleep 0.5; done
 
