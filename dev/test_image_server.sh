@@ -1,7 +1,3 @@
-
-#!/usr/bin/env bash
-set -euo pipefail
-
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # 写死本地权重路径（按你的机器目录）
