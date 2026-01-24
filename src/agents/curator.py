@@ -102,6 +102,10 @@ class StoryBoardCurator:
                 response = agent.step(prompt)
                 
                 story_board = extract_json(response.content)
+
+                # Post-process: enforce hard constraints that are easy to auto-fix.
+                # This prevents brittle failures when the LLM exceeds title word limits by 1-2 words.
+                self._coerce_story_board_in_place(story_board)
                 
                 if self._validate_story_board(story_board, classified_visuals, visual_context):
                     log_agent_success(self.name, f"successfully created story board on attempt {attempt + 1}")
@@ -115,6 +119,54 @@ class StoryBoardCurator:
                     raise ValueError("failed to create story board after multiple attempts")
 
         raise ValueError("failed to create story board")
+
+    def _coerce_story_board_in_place(self, story_board: Dict[str, Any]) -> None:
+        """Coerce a subset of schema constraints in-place (non-destructive)."""
+        try:
+            max_words = int(self.validation_config.get("max_title_words", 4))
+        except Exception:
+            max_words = 4
+
+        scp = story_board.get("spatial_content_plan")
+        if not isinstance(scp, dict):
+            return
+        sections = scp.get("sections")
+        if not isinstance(sections, list):
+            return
+
+        for sec in sections:
+            if not isinstance(sec, dict):
+                continue
+            title = sec.get("section_title")
+            if not isinstance(title, str):
+                continue
+            new_title = self._shorten_title_to_words(title, max_words=max_words)
+            if new_title != title:
+                sec["section_title"] = new_title
+                log_agent_info(self.name, f"coerced section_title: '{title}' -> '{new_title}'")
+
+    def _shorten_title_to_words(self, title: str, max_words: int) -> str:
+        """Shorten a title to <= max_words with light stopword removal first."""
+        t = " ".join((title or "").strip().split())
+        if not t:
+            return t
+        words = t.split()
+        if len(words) <= max_words:
+            return t
+
+        stop = {
+            "the", "a", "an",
+            "in", "of", "for", "to", "and", "or",
+            "on", "with", "via", "from", "by",
+        }
+        filtered = [w for w in words if w.lower() not in stop]
+        if len(filtered) == 0:
+            filtered = words
+
+        if len(filtered) > max_words:
+            filtered = filtered[:max_words]
+
+        return " ".join(filtered)
 
     def _validate_story_board(self, story_board: Dict, classified_visuals: Dict = None, visual_context: Dict = None) -> bool:
         """validate story board structure and constraints"""
