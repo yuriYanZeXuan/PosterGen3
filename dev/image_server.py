@@ -25,6 +25,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+import numpy as np
 import torch
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
@@ -170,6 +171,71 @@ def _remove_background_rgba(img: Image.Image) -> Image.Image:
     raise RuntimeError(f"unexpected rembg output type: {type(out)}")
 
 
+def _remove_background_rgba_opencv(img: Image.Image) -> Image.Image:
+    """
+    Remove background to RGBA using OpenCV flood-fill (connected region) masks.
+
+    Seeds:
+    - four corners (assumed background)
+    - center point (assumed foreground)
+
+    Strategy:
+    - compute background mask from corners
+    - compute foreground mask from center
+    - if center-foreground looks valid, use it; else fallback to inverse background
+    """
+    if img.mode in ("RGBA", "LA"):
+        return img.convert("RGBA")
+
+    import cv2  # type: ignore
+
+    rgb = img.convert("RGB")
+    arr = np.array(rgb)
+    h, w = arr.shape[:2]
+    if h < 2 or w < 2:
+        return rgb.convert("RGBA")
+
+    # OpenCV floodFill expects BGR.
+    bgr = arr[:, :, ::-1].copy()
+
+    tol = int(os.getenv("BG_REMOVE_TOL", "18"))
+    lo = (tol, tol, tol)
+    hi = (tol, tol, tol)
+    flags = 4 | cv2.FLOODFILL_MASK_ONLY | (255 << 8)  # 4-connectivity; write 255 into mask
+
+    def _flood_mask(seeds):
+        mask = np.zeros((h + 2, w + 2), np.uint8)
+        for sx, sy in seeds:
+            # clamp
+            sx = max(0, min(w - 1, int(sx)))
+            sy = max(0, min(h - 1, int(sy)))
+            cv2.floodFill(bgr, mask, (sx, sy), 0, loDiff=lo, upDiff=hi, flags=flags)
+        return mask[1 : h + 1, 1 : w + 1]
+
+    corner_seeds = [(0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1)]
+    center_seed = [(w // 2, h // 2)]
+
+    bg_mask = _flood_mask(corner_seeds)  # 255 where background-like regions connected to corners
+    fg_mask = _flood_mask(center_seed)  # 255 where region connected to center
+
+    bg = (bg_mask == 255).astype(np.uint8)
+    fg = (fg_mask == 255).astype(np.uint8)
+
+    # Heuristic: if center region is too small/too large, it's unreliable.
+    fg_ratio = float(fg.sum()) / float(h * w)
+    if 0.01 <= fg_ratio <= 0.95:
+        alpha = fg * 255
+    else:
+        # Fallback: assume everything not corner-connected background is foreground
+        alpha = (1 - bg) * 255
+
+    # Soften edges slightly
+    alpha = cv2.GaussianBlur(alpha.astype(np.uint8), (0, 0), sigmaX=1.0)
+
+    rgba = np.dstack([arr, alpha])
+    return Image.fromarray(rgba, mode="RGBA")
+
+
 def _save_image(img: Image.Image, out_dir: Path, stem: str) -> str:
     path = out_dir / f"{stem}.png"
     img.save(path)
@@ -237,6 +303,7 @@ async def edit(
     seed: int = Form(0),
     out_dir: str = Form(""),
     remove_bg: bool = Form(True),
+    remove_bg_method: str = Form("opencv"),  # opencv | rembg
     engine: str = Form("qwen_edit"),
 ) -> Dict[str, Any]:
     if engine != "qwen_edit":
@@ -271,10 +338,19 @@ async def edit(
 
     final_path = raw_path
     if remove_bg:
-        rgba = _remove_background_rgba(edited)
+        if remove_bg_method == "rembg":
+            rgba = _remove_background_rgba(edited)
+        else:
+            rgba = _remove_background_rgba_opencv(edited)
         final_path = _save_image(rgba, out_dir_path, stem_base + "_rgba")
 
-    return {"path": final_path, "raw_path": raw_path, "engine": engine, "remove_bg": remove_bg}
+    return {
+        "path": final_path,
+        "raw_path": raw_path,
+        "engine": engine,
+        "remove_bg": remove_bg,
+        "remove_bg_method": remove_bg_method,
+    }
 
 
 def main() -> None:

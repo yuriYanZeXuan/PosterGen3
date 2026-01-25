@@ -3,6 +3,7 @@ powerpoint rendering using python-pptx
 """
 
 import re
+import random
 import qrcode
 import platform
 import shutil
@@ -19,7 +20,7 @@ from pptx.dml.color import RGBColor
 from PIL import Image
 
 from src.state.poster_state import PosterState
-from utils.src.logging_utils import log_agent_info, log_agent_success, log_agent_error
+from utils.src.logging_utils import log_agent_info, log_agent_success, log_agent_error, log_agent_warning
 from src.config.poster_config import load_config
 
 
@@ -355,10 +356,21 @@ class Renderer:
             p = Path(str(img_path))
             if not p.exists():
                 return
-            # Place the PNG to cover the container area; alpha keeps it subtle.
-            slide.shapes.add_picture(str(p), x, y, width=w, height=h)
-        except Exception:
+            # Place the PNG as the largest square inside the section container,
+            # randomly choosing top-left or bottom-right corner.
+            side = w if w <= h else h
+            if random.random() < 0.5:
+                # top-left
+                left = x
+                top = y
+            else:
+                # bottom-right
+                left = x + (w - side)
+                top = y + (h - side)
+            slide.shapes.add_picture(str(p), left, top, width=side, height=side)
+        except Exception as e:
             # Decorative background must never break rendering.
+            log_agent_error(self.name, f"failed to add decorative background for section {section_id}: {e}")
             return
 
     def _render_text(self, slide, element: Dict, state: PosterState):
