@@ -149,7 +149,12 @@ rendering:
     # Quadrant assignment strategy: cycle | random
     quadrant_strategy: "cycle"
     # Size of generated icon image (pixels)
-    icon_size: 768
+    icon_size: 512
+    # Theme character for consistent visuals
+    theme_character: "cute research robot mascot"
+    # Poster background (full slide) generation
+    poster_background_enabled: True
+    poster_bg_long_edge: 1536
   slide_layout_index: 6           # blank slide
   default_shape_fill: "#FFFFFF"
 

@@ -33,10 +33,10 @@ class ImageDecoratorAgent:
         self.render_cfg = (self.config.get("rendering", {}) or {}).get("decorative_backgrounds", {}) or {}
         self.generate_prompt_tpl = load_prompt("config/prompts/image_decorator_generate.txt")
         self.edit_prompt_tpl = load_prompt("config/prompts/image_decorator_edit.txt")
+        self.poster_bg_prompt_tpl = load_prompt("config/prompts/poster_background_generate.txt")
 
     def __call__(self, state: PosterState) -> PosterState:
         enabled = bool(self.render_cfg.get("enabled", False))
-        log_agent_info(self.name, f"called (enabled={enabled})")
         if not enabled:
             state["decorative_backgrounds"] = {"enabled": False}
             state["current_agent"] = self.name
@@ -46,46 +46,19 @@ class ImageDecoratorAgent:
         num_sections = int(self.render_cfg.get("num_sections", 3))
         quadrant_strategy = str(self.render_cfg.get("quadrant_strategy", "cycle"))
         icon_size = int(self.render_cfg.get("icon_size", 768))
+        theme_character = str(self.render_cfg.get("theme_character", "cute research robot mascot"))
+        poster_bg_enabled = bool(self.render_cfg.get("poster_background_enabled", False))
+        poster_bg_long_edge = int(self.render_cfg.get("poster_bg_long_edge", 1536))
 
         out_dir = Path(state["output_dir"]) / "assets" / "decorative_backgrounds"
         out_dir.mkdir(parents=True, exist_ok=True)
 
         theme_color = "#1E3A8A"
-        try:
-            theme_color = (state.get("color_scheme") or {}).get("theme", theme_color)  # type: ignore[assignment]
-        except Exception:
-            pass
+        theme_color = (state.get("color_scheme") or {}).get("theme", theme_color)  
 
         log_agent_info(self.name, f"decorative backgrounds enabled; server={server_url}, out_dir={out_dir}")
 
-        # 1) Build prompts
-        gen_prompt = Template(self.generate_prompt_tpl).render(theme_color=theme_color).strip()
-        edit_prompt = Template(self.edit_prompt_tpl).render(theme_color=theme_color).strip()
-
-        # 2) Call local server: generate base image
-        base_img_path = self._call_generate(
-            server_url=server_url,
-            prompt=gen_prompt,
-            size=icon_size,
-            out_dir=str(out_dir),
-        )
-
-        # 3) Call local server: edit + remove background (RGBA)
-        rgba_img_path = self._call_edit(
-            server_url=server_url,
-            image_path=base_img_path,
-            prompt=edit_prompt,
-            out_dir=str(out_dir),
-            remove_bg=True,
-        )
-
-        # Ensure final RGBA is copied into our output_dir (some servers may save elsewhere).
-        rgba_img_path = self._ensure_local_copy(rgba_img_path, out_dir / "icon_rgba.png")
-
-        # 4) Split into 4 quadrants around center
-        quadrant_paths = self._split_center_quadrants(rgba_img_path, out_dir)
-
-        # 5) Select "low-usage" section containers by utilization ratio (used_area / container_area)
+        # 1) Select "low-usage" section containers by utilization ratio (used_area / container_area)
         styled_layout = state.get("styled_layout") or []
         section_containers = [
             e for e in styled_layout
@@ -93,7 +66,7 @@ class ImageDecoratorAgent:
         ]
         if not section_containers:
             log_agent_warning(self.name, "no section_container found in styled_layout; skipping assignment")
-            state["decorative_backgrounds"] = {"enabled": True, "quadrants": quadrant_paths, "sections": {}}
+            state["decorative_backgrounds"] = {"enabled": True, "sections": {}}
             state["current_agent"] = self.name
             return state
 
@@ -177,27 +150,117 @@ class ImageDecoratorAgent:
         # Sort by utilization ascending (lower usage first).
         ranked = sorted(containers.keys(), key=_utilization)
         chosen_sids = ranked[: max(0, min(num_sections, len(ranked)))]
-        chosen = [c for c in section_containers if str(c.get("section_id")) in set(chosen_sids)]
+
+        # Build section_id -> section_title map from story_board (more reliable than rendered text).
+        sid_to_title: Dict[str, str] = {}
+        sb = state.get("story_board") or {}
+        scp = sb.get("spatial_content_plan") if isinstance(sb, dict) else None
+        sections_sb = scp.get("sections") if isinstance(scp, dict) else None
+        if isinstance(sections_sb, list):
+            for s in sections_sb:
+                if isinstance(s, dict) and s.get("section_id"):
+                    sid_to_title[str(s["section_id"])] = str(s.get("section_title", "")).strip()
+
+        # Use up to 4 titles to drive a real 2×2 four-panel generation.
+        panel_sids = chosen_sids[:4] + ([""] * max(0, 4 - len(chosen_sids[:4])))
+        panel_titles = [
+            sid_to_title.get(panel_sids[0], "Research Overview"),
+            sid_to_title.get(panel_sids[1], "Method"),
+            sid_to_title.get(panel_sids[2], "Results"),
+            sid_to_title.get(panel_sids[3], "Analysis"),
+        ]
+
+        # 2) Build prompts for TRUE 2×2 sheet
+        gen_prompt = Template(self.generate_prompt_tpl).render(
+            theme_color=theme_color,
+            theme_character=theme_character,
+            panel_1_title=panel_titles[0],
+            panel_2_title=panel_titles[1],
+            panel_3_title=panel_titles[2],
+            panel_4_title=panel_titles[3],
+        ).strip()
+        edit_prompt = Template(self.edit_prompt_tpl).render(
+            theme_color=theme_color,
+            theme_character=theme_character,
+        ).strip()
+
+        # 3) Call local server: generate base 2×2 sheet
+        sheet_base_path = self._call_generate(
+            server_url=server_url,
+            prompt=gen_prompt,
+            size=icon_size,
+            out_dir=str(out_dir),
+        )
+
+        # 4) Call local server: edit + remove background (RGBA) on the whole sheet
+        sheet_rgba_path = self._call_edit(
+            server_url=server_url,
+            image_path=sheet_base_path,
+            prompt=edit_prompt,
+            out_dir=str(out_dir),
+            remove_bg=True,
+        )
+
+        sheet_rgba_path = self._ensure_local_copy(sheet_rgba_path, out_dir / "sheet_rgba.png")
+
+        # 5) Split into 4 quadrants (each should be an independent panel)
+        quadrant_paths = self._split_center_quadrants(sheet_rgba_path, out_dir)
 
         # 6) Assign one quadrant to each chosen section_id
         by_section: Dict[str, str] = {}
         if quadrant_strategy == "random":
-            for e in chosen:
-                sid = str(e["section_id"])
-                by_section[sid] = random.choice(quadrant_paths)
+            for sid in chosen_sids:
+                by_section[str(sid)] = random.choice(quadrant_paths)
         else:
-            # cycle
-            for i, e in enumerate(chosen):
-                sid = str(e["section_id"])
-                by_section[sid] = quadrant_paths[i % len(quadrant_paths)]
+            # Prefer aligning first four sections to their panel positions for coherence.
+            for i, sid in enumerate(chosen_sids):
+                by_section[str(sid)] = quadrant_paths[i % len(quadrant_paths)]
+
+        # 7) Generate full-poster background (second call)
+        poster_bg_path = None
+        if poster_bg_enabled:
+            poster_title = ""
+            nc = state.get("narrative_content") or {}
+            if isinstance(nc, dict):
+                meta = nc.get("meta") if isinstance(nc.get("meta"), dict) else {}
+                if isinstance(meta, dict):
+                    poster_title = str(meta.get("poster_title", "")).strip()
+            if not poster_title:
+                poster_title = str(state.get("poster_name", "Poster")).strip()
+
+            pw = float(state.get("poster_width", 54))
+            ph = float(state.get("poster_height", 36))
+            # Keep ratio; set long edge pixels.
+            if pw >= ph:
+                w_px = int(poster_bg_long_edge)
+                h_px = max(256, int(w_px * (ph / pw)))
+            else:
+                h_px = int(poster_bg_long_edge)
+                w_px = max(256, int(h_px * (pw / ph)))
+
+            bg_prompt = Template(self.poster_bg_prompt_tpl).render(
+                poster_title=poster_title,
+                theme_color=theme_color,
+                theme_character=theme_character,
+            ).strip()
+
+            poster_bg_path = self._call_generate_rect(
+                server_url=server_url,
+                prompt=bg_prompt,
+                width=w_px,
+                height=h_px,
+                out_dir=str(out_dir),
+            )
+            poster_bg_path = self._ensure_local_copy(poster_bg_path, out_dir / "poster_background.png")
 
         state["decorative_backgrounds"] = {
             "enabled": True,
             "server_url": server_url,
-            "icon_base": base_img_path,
-            "icon_rgba": rgba_img_path,
+            "sheet_base": sheet_base_path,
+            "sheet_rgba": sheet_rgba_path,
             "quadrants": quadrant_paths,
             "sections": by_section,
+            "poster_background": poster_bg_path,
         }
         state["current_agent"] = self.name
         log_agent_success(self.name, f"assigned decorative backgrounds to {len(by_section)} sections")
@@ -216,6 +279,24 @@ class ImageDecoratorAgent:
             "engine": "zimage",
         }
         r = requests.post(url, json=payload, timeout=600)
+        if r.status_code != 200:
+            raise RuntimeError(f"generate failed ({r.status_code}): {r.text}")
+        data = r.json()
+        return str(data["path"])
+
+    def _call_generate_rect(self, server_url: str, prompt: str, width: int, height: int, out_dir: str) -> str:
+        url = f"{server_url}/v1/generate"
+        payload = {
+            "prompt": prompt,
+            "height": int(height),
+            "width": int(width),
+            "num_inference_steps": 9,
+            "guidance_scale": 0.0,
+            "seed": 123,
+            "out_dir": out_dir,
+            "engine": "zimage",
+        }
+        r = requests.post(url, json=payload, timeout=900)
         if r.status_code != 200:
             raise RuntimeError(f"generate failed ({r.status_code}): {r.text}")
         data = r.json()

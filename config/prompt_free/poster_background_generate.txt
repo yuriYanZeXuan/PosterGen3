@@ -1,0 +1,14 @@
+Generate a prompt for full-poster background framework outline image matching this poster's theme.
+
+Poster title (for inspiration, DO NOT render as text): {{ poster_title }}
+Theme character: {{ theme_character }}
+Theme color: {{ theme_color }}
+
+Style:
+- Minimal, professional, academic poster background.
+- Mostly solid color background with subtle gradients.
+- No text, no logos, no watermarks.
+- Keep ample whitespace; background must not compete with content.
+
+Return ONLY the generation prompt text (no JSON, no extra commentary).
+

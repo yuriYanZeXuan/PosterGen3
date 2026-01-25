@@ -70,6 +70,13 @@ class Renderer:
         prs.slide_height = Inches(state["poster_height"])
         slide = prs.slides.add_slide(prs.slide_layouts[6])
 
+        # Optional full-poster background image (must be added first for correct z-order).
+        deco = state.get("decorative_backgrounds") or {}
+        bg_path = deco.get("poster_background") if isinstance(deco, dict) else None
+        if bg_path and Path(str(bg_path)).exists():
+            slide.shapes.add_picture(str(bg_path), 0, 0, width=prs.slide_width, height=prs.slide_height)
+            log_agent_info(self.name, f"applied poster background: {bg_path}")
+
         # TODO: generate QR code if needed
         qr_code_path = None
         if state.get("url"):

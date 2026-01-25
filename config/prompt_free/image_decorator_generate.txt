@@ -1,4 +1,16 @@
-Generate a single, clean, cute CARTOON ICON that can be used as a subtle decorative background element in an academic poster.
+Generate a TRUE 2×2 FOUR-PANEL CARTOON sheet (comic-style), where each panel is an independent icon scene.
+
+Global style:
+- Flat/modern cartoon icon, clean edges, minimal details, high readability.
+- No text, no numbers, no captions, no watermarks, no logos.
+- Strong separation between panels: clear gutters / white dividers / rounded window frames.
+- Harmonize with theme color {{ theme_color }} and theme character {{ theme_character }}.
+
+Panel mapping (must be visually independent):
+- Top-left panel: {{ panel_1_title }} (icon scene relevant to this title)
+- Top-right panel: {{ panel_2_title }} (icon scene relevant to this title)
+- Bottom-left panel: {{ panel_3_title }} (icon scene relevant to this title)
+- Bottom-right panel: {{ panel_4_title }} (icon scene relevant to this title)
 
 Requirements:
 - Style: flat/modern cartoon icon, simple shapes, clean edges, high readability.
@@ -7,5 +19,5 @@ Requirements:
 - Color: harmonize with the theme color {{ theme_color }} (use it as the main accent).
 - Subject: abstract but relevant to academic research (e.g., lightbulb, atom, graph, microscope, network, chip, neural network, paper, etc.).
 
-Return ONLY the prompt text for the image generation model (no JSON, no extra commentary).
+Return ONLY the generation prompt text (no JSON, no extra commentary).
 
