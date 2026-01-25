@@ -10,7 +10,9 @@ Endpoints:
 Notes:
 - Z-Image runs on cuda:0
 - Qwen Edit runs on cuda:1 (if available)
-- Background removal uses rembg (u2net) ONLY, with local cache pre-populated to avoid online download.
+- Background removal supports:
+  - OpenCV flood-fill (connected region)
+  - RMBG-2.0 (briaai/RMBG-2.0) segmentation model
 """
 
 from __future__ import annotations
@@ -18,7 +20,6 @@ from __future__ import annotations
 import argparse
 import io
 import os
-import shutil
 import sys
 import uuid
 from datetime import datetime
@@ -30,6 +31,8 @@ import torch
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 from PIL import Image
+from torchvision import transforms
+from transformers import AutoModelForImageSegmentation
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -52,13 +55,10 @@ QWEN_EDIT_NEGATIVE_PROMPT = (
     "extra limbs, extra fingers, missing fingers, mutated hands"
 )
 
-# rembg local model handling (no online downloads at runtime).
-REMBG_MODEL_NAME = "u2net"
-REMBG_LOCAL_ONNX_CANDIDATES = [
-    "/mnt/tidalfs-bdsz01/usr/tusen/yanzexuan/weight/rembg/u2net.onnx",
-    "/mnt/tidalfs-bdsz01/usr/tusen/yanzexuan/weight/u2net.onnx",
-    "/mnt/tidalfs-bdsz01/usr/tusen/yanzexuan/weight/u2net/u2net.onnx",
-]
+# RMBG-2.0 background removal (HuggingFace). Change to local path if needed.
+RMBG_MODEL_ID = "/mnt/tidalfs-bdsz01/usr/tusen/yanzexuan/weight/rmbg2"
+# Prefer running RMBG on cuda:0 to avoid contending with Qwen Edit on cuda:1.
+RMBG_DEVICE = "cuda:0"
 
 
 app = FastAPI(title="PosterGen Local Image API", version="0.2.0")
@@ -90,7 +90,8 @@ def _resolve_device(preferred: str) -> str:
 
 _ZIMAGE_PIPE: Any = None
 _QWEN_EDIT_PIPE: Any = None
-_REMBG_SESSION: Any = None
+_RMBG_MODEL: Any = None
+_RMBG_TRANSFORM: Any = None
 
 
 def _load_zimage() -> Any:
@@ -127,56 +128,53 @@ def _load_qwen_edit() -> Any:
     return _QWEN_EDIT_PIPE
 
 
-def _ensure_rembg_u2net_cached() -> Path:
-    """
-    Ensure `~/.u2net/u2net.onnx` exists, copying from a local candidate path.
-    This prevents rembg from downloading from GitHub at runtime.
-    """
-    cache_dir = Path.home() / ".u2net"
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    cache_path = cache_dir / "u2net.onnx"
-    if cache_path.exists():
-        return cache_path
+def _load_rmbg() -> tuple[Any, Any]:
+    """Lazy-load RMBG-2.0 segmentation model and its transform."""
+    global _RMBG_MODEL, _RMBG_TRANSFORM
+    if _RMBG_MODEL is not None and _RMBG_TRANSFORM is not None:
+        return _RMBG_MODEL, _RMBG_TRANSFORM
 
-    for c in REMBG_LOCAL_ONNX_CANDIDATES:
-        p = Path(c)
-        if p.exists():
-            shutil.copyfile(p, cache_path)
-            return cache_path
+    device = _resolve_device(RMBG_DEVICE)
+    model = AutoModelForImageSegmentation.from_pretrained(RMBG_MODEL_ID, trust_remote_code=True)
+    torch.set_float32_matmul_precision("high")
+    model.to(device)
+    model.eval()
 
-    raise RuntimeError(
-        "rembg u2net model not found locally; refusing to download at runtime. "
-        f"Please place `u2net.onnx` into one of: {REMBG_LOCAL_ONNX_CANDIDATES} "
-        f"or pre-populate cache at {cache_path}."
+    image_size = (1024, 1024)
+    transform_image = transforms.Compose(
+        [
+            transforms.Resize(image_size),
+            transforms.ToTensor(),
+            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+        ]
     )
 
-
-def _get_rembg_session() -> Any:
-    global _REMBG_SESSION
-    if _REMBG_SESSION is not None:
-        return _REMBG_SESSION
-
-    _ensure_rembg_u2net_cached()
-    from rembg import new_session  # type: ignore
-
-    _REMBG_SESSION = new_session(REMBG_MODEL_NAME)
-    return _REMBG_SESSION
+    _RMBG_MODEL = model
+    _RMBG_TRANSFORM = transform_image
+    return _RMBG_MODEL, _RMBG_TRANSFORM
 
 
-def _remove_background_rgba(img: Image.Image) -> Image.Image:
-    """Remove background to RGBA using rembg only."""
+def _remove_background_rgba_rmbg2(img: Image.Image) -> Image.Image:
+    """Remove background using RMBG-2.0 to produce an RGBA PNG."""
     if img.mode in ("RGBA", "LA"):
         return img.convert("RGBA")
 
-    from rembg import remove as rembg_remove  # type: ignore
+    model, transform_image = _load_rmbg()
+    device = next(model.parameters()).device
 
-    session = _get_rembg_session()
-    out = rembg_remove(img.convert("RGB"), session=session)
-    if isinstance(out, Image.Image):
-        return out.convert("RGBA")
-    if isinstance(out, (bytes, bytearray)):
-        return Image.open(io.BytesIO(out)).convert("RGBA")
-    raise RuntimeError(f"unexpected rembg output type: {type(out)}")
+    rgb = img.convert("RGB")
+    input_images = transform_image(rgb).unsqueeze(0).to(device)
+
+    with torch.no_grad():
+        preds = model(input_images)[-1].sigmoid().detach().cpu()
+    pred = preds[0].squeeze(0)
+
+    mask_pil = transforms.ToPILImage()(pred)
+    mask_pil = mask_pil.resize(rgb.size)
+
+    out = rgb.copy()
+    out.putalpha(mask_pil)
+    return out
 
 
 def _remove_background_rgba_opencv(img: Image.Image) -> Image.Image:
@@ -284,10 +282,10 @@ def health() -> Dict[str, Any]:
         "cuda_device_count": torch.cuda.device_count() if torch.cuda.is_available() else 0,
         "zimage_device": _resolve_device(ZIMAGE_DEVICE),
         "qwen_edit_device": _resolve_device(QWEN_EDIT_DEVICE),
+        "rmbg_device": _resolve_device(RMBG_DEVICE),
         "zimage_loaded": _ZIMAGE_PIPE is not None,
         "qwen_edit_loaded": _QWEN_EDIT_PIPE is not None,
-        "rembg_model_cached": (Path.home() / ".u2net" / "u2net.onnx").exists(),
-        "rembg_session_ready": _REMBG_SESSION is not None,
+        "rmbg_loaded": _RMBG_MODEL is not None,
     }
 
 
@@ -325,7 +323,7 @@ async def edit(
     seed: int = Form(0),
     out_dir: str = Form(""),
     remove_bg: bool = Form(True),
-    remove_bg_method: str = Form("opencv"),  # opencv | rembg
+    remove_bg_method: str = Form("opencv"),  # opencv | rmbg2
     engine: str = Form("qwen_edit"),
 ) -> Dict[str, Any]:
     if engine != "qwen_edit":
@@ -360,8 +358,8 @@ async def edit(
 
     final_path = raw_path
     if remove_bg:
-        if remove_bg_method == "rembg":
-            rgba = _remove_background_rgba(edited)
+        if remove_bg_method == "rmbg2":
+            rgba = _remove_background_rgba_rmbg2(edited)
         else:
             rgba = _remove_background_rgba_opencv(edited)
         final_path = _save_image(rgba, out_dir_path, stem_base + "_rgba")
