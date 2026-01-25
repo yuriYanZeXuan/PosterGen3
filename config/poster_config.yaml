@@ -157,6 +157,8 @@ rendering:
     poster_background_edit_enabled: True
     poster_background_remove_bg: True
     poster_bg_long_edge: 1536
+    # If true, use LLM (text_model) to refine templates into final image prompts
+    prompt_refine_enabled: True
   slide_layout_index: 6           # blank slide
   default_shape_fill: "#FFFFFF"
 

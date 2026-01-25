@@ -23,7 +23,7 @@ from jinja2 import Template
 
 from src.config.poster_config import load_config
 from src.state.poster_state import PosterState
-from utils.langgraph_utils import load_prompt
+from utils.langgraph_utils import LangGraphAgent, load_prompt
 from utils.src.logging_utils import log_agent_info, log_agent_success, log_agent_warning
 
 
@@ -53,6 +53,7 @@ class ImageDecoratorAgent:
         poster_bg_edit_enabled = bool(self.render_cfg.get("poster_background_edit_enabled", True))
         poster_bg_remove_bg = bool(self.render_cfg.get("poster_background_remove_bg", True))
         poster_bg_long_edge = int(self.render_cfg.get("poster_bg_long_edge", 1536))
+        prompt_refine_enabled = bool(self.render_cfg.get("prompt_refine_enabled", True))
 
         out_dir = Path(state["output_dir"]) / "assets" / "decorative_backgrounds"
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -175,18 +176,28 @@ class ImageDecoratorAgent:
         ]
 
         # 2) Build prompts for TRUE 2×2 sheet
-        gen_prompt = Template(self.generate_prompt_tpl).render(
-            theme_color=theme_color,
-            theme_character=theme_character,
-            panel_1_title=panel_titles[0],
-            panel_2_title=panel_titles[1],
-            panel_3_title=panel_titles[2],
-            panel_4_title=panel_titles[3],
-        ).strip()
-        edit_prompt = Template(self.edit_prompt_tpl).render(
-            theme_color=theme_color,
-            theme_character=theme_character,
-        ).strip()
+        gen_prompt_raw, gen_prompt = self._render_and_maybe_refine(
+            enabled=prompt_refine_enabled,
+            state=state,
+            tpl_text=self.generate_prompt_tpl,
+            template_data={
+                "theme_color": theme_color,
+                "theme_character": theme_character,
+                "panel_1_title": panel_titles[0],
+                "panel_2_title": panel_titles[1],
+                "panel_3_title": panel_titles[2],
+                "panel_4_title": panel_titles[3],
+            },
+        )
+        edit_prompt_raw, edit_prompt = self._render_and_maybe_refine(
+            enabled=prompt_refine_enabled,
+            state=state,
+            tpl_text=self.edit_prompt_tpl,
+            template_data={
+                "theme_color": theme_color,
+                "theme_character": theme_character,
+            },
+        )
 
         self._append_tool_call_log(
             state,
@@ -197,6 +208,8 @@ class ImageDecoratorAgent:
                 "theme_color": theme_color,
                 "theme_character": theme_character,
                 "panel_titles": panel_titles,
+                "template_generate_prompt": gen_prompt_raw,
+                "template_edit_prompt": edit_prompt_raw,
                 "generate_prompt": gen_prompt,
                 "edit_prompt": edit_prompt,
             },
@@ -256,18 +269,29 @@ class ImageDecoratorAgent:
                 h_px = int(poster_bg_long_edge)
                 w_px = max(256, int(h_px * (pw / ph)))
 
-            bg_prompt = Template(self.poster_bg_prompt_tpl).render(
-                poster_title=poster_title,
-                theme_color=theme_color,
-                theme_character=theme_character,
-            ).strip()
+            bg_prompt_raw, bg_prompt = self._render_and_maybe_refine(
+                enabled=prompt_refine_enabled,
+                state=state,
+                tpl_text=self.poster_bg_prompt_tpl,
+                template_data={
+                    "poster_title": poster_title,
+                    "theme_color": theme_color,
+                    "theme_character": theme_character,
+                },
+            )
 
+            bg_edit_prompt_raw = None
             bg_edit_prompt = None
             if poster_bg_edit_enabled:
-                bg_edit_prompt = Template(self.poster_bg_edit_prompt_tpl).render(
-                    theme_color=theme_color,
-                    theme_character=theme_character,
-                ).strip()
+                bg_edit_prompt_raw, bg_edit_prompt = self._render_and_maybe_refine(
+                    enabled=prompt_refine_enabled,
+                    state=state,
+                    tpl_text=self.poster_bg_edit_prompt_tpl,
+                    template_data={
+                        "theme_color": theme_color,
+                        "theme_character": theme_character,
+                    },
+                )
 
             self._append_tool_call_log(
                 state,
@@ -279,6 +303,8 @@ class ImageDecoratorAgent:
                     "bg_size_px": {"width": w_px, "height": h_px},
                     "theme_color": theme_color,
                     "theme_character": theme_character,
+                    "template_generate_prompt": bg_prompt_raw,
+                    "template_edit_prompt": bg_edit_prompt_raw,
                     "generate_prompt": bg_prompt,
                     "edit_prompt": bg_edit_prompt,
                     "remove_bg": bool(poster_bg_remove_bg),
@@ -333,6 +359,34 @@ class ImageDecoratorAgent:
                 f.write(json.dumps(record, ensure_ascii=False) + "\n")
         except Exception as e:
             log_agent_warning(self.name, f"failed to write tool_call.log: {e}")
+
+    def _render_and_maybe_refine(
+        self,
+        enabled: bool,
+        state: PosterState,
+        tpl_text: str,
+        template_data: Dict[str, Any],
+    ) -> Tuple[str, str]:
+        """
+        Render a Jinja template with provided data, and (optionally) send the rendered
+        template directly to the LLM to obtain the final prompt text.
+
+        Returns: (rendered_template_text, final_prompt_text)
+        """
+        rendered = Template(tpl_text).render(**template_data).strip()
+        if not enabled:
+            return rendered, rendered
+        try:
+            agent = LangGraphAgent("expert image prompt engineer", state["text_model"])
+            agent.reset()
+            resp = agent.step(rendered)
+            refined = (resp.content or "").strip()
+            if refined.startswith("```"):
+                refined = refined.strip("`").strip()
+            return rendered, (refined or rendered)
+        except Exception as e:
+            log_agent_warning(self.name, f"prompt refine failed, fallback to template: {e}")
+            return rendered, rendered
 
     def _call_generate(self, server_url: str, prompt: str, size: int, out_dir: str) -> str:
         url = f"{server_url}/v1/generate"
