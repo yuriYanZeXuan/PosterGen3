@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import random
 import shutil
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
@@ -187,6 +188,20 @@ class ImageDecoratorAgent:
             theme_character=theme_character,
         ).strip()
 
+        self._append_tool_call_log(
+            state,
+            {
+                "kind": "decorative_sheet",
+                "server_url": server_url,
+                "icon_size": icon_size,
+                "theme_color": theme_color,
+                "theme_character": theme_character,
+                "panel_titles": panel_titles,
+                "generate_prompt": gen_prompt,
+                "edit_prompt": edit_prompt,
+            },
+        )
+
         # 3) Call local server: generate base 2×2 sheet
         sheet_base_path = self._call_generate(
             server_url=server_url,
@@ -247,6 +262,29 @@ class ImageDecoratorAgent:
                 theme_character=theme_character,
             ).strip()
 
+            bg_edit_prompt = None
+            if poster_bg_edit_enabled:
+                bg_edit_prompt = Template(self.poster_bg_edit_prompt_tpl).render(
+                    theme_color=theme_color,
+                    theme_character=theme_character,
+                ).strip()
+
+            self._append_tool_call_log(
+                state,
+                {
+                    "kind": "poster_background",
+                    "server_url": server_url,
+                    "poster_title": poster_title,
+                    "poster_size_in": {"width": float(state.get("poster_width", 0)), "height": float(state.get("poster_height", 0))},
+                    "bg_size_px": {"width": w_px, "height": h_px},
+                    "theme_color": theme_color,
+                    "theme_character": theme_character,
+                    "generate_prompt": bg_prompt,
+                    "edit_prompt": bg_edit_prompt,
+                    "remove_bg": bool(poster_bg_remove_bg),
+                },
+            )
+
             poster_bg_path = self._call_generate_rect(
                 server_url=server_url,
                 prompt=bg_prompt,
@@ -257,14 +295,10 @@ class ImageDecoratorAgent:
 
             # Optional second-stage edit to make background more subtle (no background removal).
             if poster_bg_edit_enabled:
-                bg_edit_prompt = Template(self.poster_bg_edit_prompt_tpl).render(
-                    theme_color=theme_color,
-                    theme_character=theme_character,
-                ).strip()
                 poster_bg_path = self._call_edit(
                     server_url=server_url,
                     image_path=poster_bg_path,
-                    prompt=bg_edit_prompt,
+                    prompt=str(bg_edit_prompt),
                     out_dir=str(out_dir),
                     remove_bg=poster_bg_remove_bg,
                 )
@@ -283,6 +317,22 @@ class ImageDecoratorAgent:
         state["current_agent"] = self.name
         log_agent_success(self.name, f"assigned decorative backgrounds to {len(by_section)} sections")
         return state
+
+    def _append_tool_call_log(self, state: PosterState, payload: Dict[str, Any]) -> None:
+        """Append rendered prompts/tool-call context into output/tool_call.log."""
+        try:
+            out_dir = Path(state["output_dir"])
+            log_path = out_dir / "tool_call.log"
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            record = {
+                "ts": datetime.now().isoformat(timespec="seconds"),
+                "agent": self.name,
+                **payload,
+            }
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps(record, ensure_ascii=False) + "\n")
+        except Exception as e:
+            log_agent_warning(self.name, f"failed to write tool_call.log: {e}")
 
     def _call_generate(self, server_url: str, prompt: str, size: int, out_dir: str) -> str:
         url = f"{server_url}/v1/generate"
