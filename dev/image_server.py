@@ -44,6 +44,14 @@ QWEN_EDIT_MODEL_ID = "/mnt/tidalfs-bdsz01/usr/tusen/yanzexuan/weight/qwen_edit_2
 ZIMAGE_DEVICE = "cuda:0"
 QWEN_EDIT_DEVICE = "cuda:1"
 
+# Qwen edit defaults
+QWEN_EDIT_NEGATIVE_PROMPT = (
+    "text, watermark, logo, signature, subtitle, caption, "
+    "lowres, blurry, out of focus, jpeg artifacts, noise, low quality, "
+    "deformed, disfigured, bad anatomy, bad proportions, "
+    "extra limbs, extra fingers, missing fingers, mutated hands"
+)
+
 # rembg local model handling (no online downloads at runtime).
 REMBG_MODEL_NAME = "u2net"
 REMBG_LOCAL_ONNX_CANDIDATES = [
@@ -176,13 +184,12 @@ def _remove_background_rgba_opencv(img: Image.Image) -> Image.Image:
     Remove background to RGBA using OpenCV flood-fill (connected region) masks.
 
     Seeds:
-    - four corners (assumed background)
-    - center point (assumed foreground)
+    - four corners (background seeds)
+    - center point (background seed)
 
     Strategy:
-    - compute background mask from corners
-    - compute foreground mask from center
-    - if center-foreground looks valid, use it; else fallback to inverse background
+    - flood-fill from (corners + center) to get background-connected mask
+    - alpha = inverse(background)
     """
     if img.mode in ("RGBA", "LA"):
         return img.convert("RGBA")
@@ -204,30 +211,46 @@ def _remove_background_rgba_opencv(img: Image.Image) -> Image.Image:
     flags = 4 | cv2.FLOODFILL_MASK_ONLY | (255 << 8)  # 4-connectivity; write 255 into mask
 
     def _flood_mask(seeds):
+        # Use a fresh copy for deterministic results.
+        bgr_work = bgr.copy()
         mask = np.zeros((h + 2, w + 2), np.uint8)
         for sx, sy in seeds:
             # clamp
             sx = max(0, min(w - 1, int(sx)))
             sy = max(0, min(h - 1, int(sy)))
-            cv2.floodFill(bgr, mask, (sx, sy), 0, loDiff=lo, upDiff=hi, flags=flags)
+            cv2.floodFill(bgr_work, mask, (sx, sy), 0, loDiff=lo, upDiff=hi, flags=flags)
         return mask[1 : h + 1, 1 : w + 1]
 
     corner_seeds = [(0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1)]
-    center_seed = [(w // 2, h // 2)]
+    cx, cy = (w // 2, h // 2)
+    center_seed = [(cx, cy)]
 
-    bg_mask = _flood_mask(corner_seeds)  # 255 where background-like regions connected to corners
-    fg_mask = _flood_mask(center_seed)  # 255 where region connected to center
-
+    # Treat corners + center as background seeds (explicit requirement).
+    bg_mask = _flood_mask(corner_seeds + center_seed)  # 255 where background-like regions connected to seeds
     bg = (bg_mask == 255).astype(np.uint8)
-    fg = (fg_mask == 255).astype(np.uint8)
 
-    # Heuristic: if center region is too small/too large, it's unreliable.
-    fg_ratio = float(fg.sum()) / float(h * w)
-    if 0.01 <= fg_ratio <= 0.95:
-        alpha = fg * 255
-    else:
-        # Fallback: assume everything not corner-connected background is foreground
-        alpha = (1 - bg) * 255
+    # Foreground is everything not connected to background.
+    alpha = (1 - bg) * 255
+
+    # If result is degenerate (e.g. tol too large floods everything), retry with smaller tolerance.
+    fg_ratio = float((alpha > 0).sum()) / float(h * w)
+    if fg_ratio < 0.01:
+        tol2 = max(3, tol // 2)
+        lo2 = (tol2, tol2, tol2)
+        hi2 = (tol2, tol2, tol2)
+        flags2 = 4 | cv2.FLOODFILL_MASK_ONLY | (255 << 8)
+        def _flood_mask2(seeds):
+            bgr_work = bgr.copy()
+            mask = np.zeros((h + 2, w + 2), np.uint8)
+            for sx, sy in seeds:
+                sx = max(0, min(w - 1, int(sx)))
+                sy = max(0, min(h - 1, int(sy)))
+                cv2.floodFill(bgr_work, mask, (sx, sy), 0, loDiff=lo2, upDiff=hi2, flags=flags2)
+            return mask[1 : h + 1, 1 : w + 1]
+        bg2 = (_flood_mask2(corner_seeds + center_seed) == 255).astype(np.uint8)
+        alpha2 = (1 - bg2) * 255
+        if float((alpha2 > 0).sum()) / float(h * w) > fg_ratio:
+            alpha = alpha2
 
     # Soften edges slightly
     alpha = cv2.GaussianBlur(alpha.astype(np.uint8), (0, 0), sigmaX=1.0)
@@ -295,7 +318,6 @@ def generate(req: GenerateRequest) -> Dict[str, Any]:
 async def edit(
     image: UploadFile = File(...),
     prompt: str = Form(...),
-    negative_prompt: str = Form(" "),
     num_inference_steps: int = Form(40),
     guidance_scale: float = Form(1.0),
     true_cfg_scale: float = Form(4.0),
@@ -324,7 +346,7 @@ async def edit(
         out = pipe(
             image=[src],
             prompt=prompt,
-            negative_prompt=negative_prompt,
+            negative_prompt=QWEN_EDIT_NEGATIVE_PROMPT,
             generator=torch.manual_seed(int(seed)),
             true_cfg_scale=float(true_cfg_scale),
             num_inference_steps=int(num_inference_steps),
