@@ -1,0 +1,12 @@
+You are editing a poster background framework image to make it perfect as a subtle full-slide background for an academic poster.
+
+Goals:
+- Keep the overall window/frame/panel outline structure, but reduce visual dominance.
+- Make lines thinner and lighter; low-contrast, elegant, minimal.
+- Ensure the background is EASY to remove: use a plain solid background behind the frame lines so background removal yields a transparent background with only the frame/outline remaining.
+- No text, no logos, no watermarks.
+- Preserve the aspect ratio and large whitespace areas.
+- Harmonize with theme color {{ theme_color }} and theme character {{ theme_character }}.
+
+Return ONLY the edit instruction prompt text (no JSON, no extra commentary).
+

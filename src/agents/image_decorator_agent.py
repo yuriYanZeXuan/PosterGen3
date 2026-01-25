@@ -34,6 +34,7 @@ class ImageDecoratorAgent:
         self.generate_prompt_tpl = load_prompt("config/prompts/image_decorator_generate.txt")
         self.edit_prompt_tpl = load_prompt("config/prompts/image_decorator_edit.txt")
         self.poster_bg_prompt_tpl = load_prompt("config/prompts/poster_background_generate.txt")
+        self.poster_bg_edit_prompt_tpl = load_prompt("config/prompts/poster_background_edit.txt")
 
     def __call__(self, state: PosterState) -> PosterState:
         enabled = bool(self.render_cfg.get("enabled", False))
@@ -48,6 +49,8 @@ class ImageDecoratorAgent:
         icon_size = int(self.render_cfg.get("icon_size", 768))
         theme_character = str(self.render_cfg.get("theme_character", "cute research robot mascot"))
         poster_bg_enabled = bool(self.render_cfg.get("poster_background_enabled", False))
+        poster_bg_edit_enabled = bool(self.render_cfg.get("poster_background_edit_enabled", True))
+        poster_bg_remove_bg = bool(self.render_cfg.get("poster_background_remove_bg", True))
         poster_bg_long_edge = int(self.render_cfg.get("poster_bg_long_edge", 1536))
 
         out_dir = Path(state["output_dir"]) / "assets" / "decorative_backgrounds"
@@ -251,6 +254,21 @@ class ImageDecoratorAgent:
                 height=h_px,
                 out_dir=str(out_dir),
             )
+
+            # Optional second-stage edit to make background more subtle (no background removal).
+            if poster_bg_edit_enabled:
+                bg_edit_prompt = Template(self.poster_bg_edit_prompt_tpl).render(
+                    theme_color=theme_color,
+                    theme_character=theme_character,
+                ).strip()
+                poster_bg_path = self._call_edit(
+                    server_url=server_url,
+                    image_path=poster_bg_path,
+                    prompt=bg_edit_prompt,
+                    out_dir=str(out_dir),
+                    remove_bg=poster_bg_remove_bg,
+                )
+
             poster_bg_path = self._ensure_local_copy(poster_bg_path, out_dir / "poster_background.png")
 
         state["decorative_backgrounds"] = {

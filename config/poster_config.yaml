@@ -154,6 +154,8 @@ rendering:
     theme_character: "cute research robot mascot"
     # Poster background (full slide) generation
     poster_background_enabled: True
+    poster_background_edit_enabled: True
+    poster_background_remove_bg: True
     poster_bg_long_edge: 1536
   slide_layout_index: 6           # blank slide
   default_shape_fill: "#FFFFFF"
