@@ -50,6 +50,7 @@ class ImageDecoratorAgent:
         icon_size = int(self.render_cfg.get("icon_size", 768))
         theme_character = str(self.render_cfg.get("theme_character", "cute research robot mascot"))
         poster_bg_enabled = bool(self.render_cfg.get("poster_background_enabled", False))
+        poster_bg_use_raw = bool(self.render_cfg.get("poster_background_use_raw", False))
         poster_bg_edit_enabled = bool(self.render_cfg.get("poster_background_edit_enabled", True))
         poster_bg_remove_bg = bool(self.render_cfg.get("poster_background_remove_bg", True))
         poster_bg_long_edge = int(self.render_cfg.get("poster_bg_long_edge", 1536))
@@ -329,6 +330,7 @@ class ImageDecoratorAgent:
                     "generate_prompt": bg_prompt,
                     "edit_prompt": bg_edit_prompt,
                     "remove_bg": bool(poster_bg_remove_bg),
+                    "use_raw": bool(poster_bg_use_raw),
                 },
             )
 
@@ -340,8 +342,8 @@ class ImageDecoratorAgent:
                 out_dir=str(out_dir),
             )
 
-            # Optional second-stage edit to make background more subtle (no background removal).
-            if poster_bg_edit_enabled:
+            # If requested, use raw generated image directly as background (skip edit/remove-bg).
+            if (not poster_bg_use_raw) and poster_bg_edit_enabled:
                 poster_bg_path = self._call_edit(
                     server_url=server_url,
                     image_path=poster_bg_path,
