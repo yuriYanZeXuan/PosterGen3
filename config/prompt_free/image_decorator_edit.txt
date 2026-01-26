@@ -1,11 +1,10 @@
-You are editing an image into a clean 2×2 FOUR-PANEL cartoon sheet suitable for splitting into 4 independent quadrant images.
+You are editing an image with 4 icon in one panel.
 
 Hard requirements:
-- Preserve a clear 2×2 panel layout with strong gutters / dividers.
-- Each panel must contain an independent cartoon icon scene; nothing crosses panel boundaries.
-- Remove any background outside the icons and frames; output should be easy to background-remove (clean silhouettes).
-- No text, no numbers, no captions, no watermarks.
-- Use theme color {{ theme_color }} and theme character {{ theme_character }} consistently (not oversaturated).
+- ONLY preserve a clear 2×2 panel layout with strong gutters / dividers.
+- Ensure each of the 4 panels shows the character with a distinct expression and action pose (e.g., happy/jumping, thinking/pondering, excited/celebrating, focused/working).
+- Remove any background outside the icons and frames.
+- Keep light theme color and theme character {{ theme_character }} consistently.
 
 Return ONLY the edit instruction prompt text (no JSON, no extra commentary).
 

@@ -151,7 +151,7 @@ rendering:
     # Size of generated icon image (pixels)
     icon_size: 512
     # Theme character for consistent visuals
-    theme_character: "cute research robot mascot"
+    theme_character: "哆啦A梦"
     # Poster background (full slide) generation
     poster_background_enabled: True
     poster_background_edit_enabled: True

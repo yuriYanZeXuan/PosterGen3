@@ -15,7 +15,7 @@ import random
 import shutil
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, Optional
 
 import requests
 from PIL import Image
@@ -154,98 +154,119 @@ class ImageDecoratorAgent:
 
         # Sort by utilization ascending (lower usage first).
         ranked = sorted(containers.keys(), key=_utilization)
-        chosen_sids = ranked[: max(0, min(num_sections, len(ranked)))]
 
-        # Build section_id -> section_title map from story_board (more reliable than rendered text).
-        sid_to_title: Dict[str, str] = {}
+        # Only decorate sections that have NO visual assets (per story_board).
+        no_visual_sids: set[str] = set()
         sb = state.get("story_board") or {}
         scp = sb.get("spatial_content_plan") if isinstance(sb, dict) else None
         sections_sb = scp.get("sections") if isinstance(scp, dict) else None
         if isinstance(sections_sb, list):
             for s in sections_sb:
+                if not isinstance(s, dict) or not s.get("section_id"):
+                    continue
+                vids = s.get("visual_assets", [])
+                if not isinstance(vids, list) or len(vids) == 0:
+                    no_visual_sids.add(str(s["section_id"]))
+
+        ranked = [sid for sid in ranked if sid in no_visual_sids] if no_visual_sids else ranked
+        chosen_sids = ranked[: max(0, min(num_sections, len(ranked)))]
+
+        # Build section_id -> section_title map from story_board (more reliable than rendered text).
+        sid_to_title: Dict[str, str] = {}
+        if isinstance(sections_sb, list):
+            for s in sections_sb:
                 if isinstance(s, dict) and s.get("section_id"):
                     sid_to_title[str(s["section_id"])] = str(s.get("section_title", "")).strip()
 
-        # Use up to 4 titles to drive a real 2×2 four-panel generation.
-        panel_sids = chosen_sids[:4] + ([""] * max(0, 4 - len(chosen_sids[:4])))
-        panel_titles = [
-            sid_to_title.get(panel_sids[0], "Research Overview"),
-            sid_to_title.get(panel_sids[1], "Method"),
-            sid_to_title.get(panel_sids[2], "Results"),
-            sid_to_title.get(panel_sids[3], "Analysis"),
-        ]
-
-        # 2) Build prompts for TRUE 2×2 sheet
-        gen_prompt_raw, gen_prompt = self._render_and_maybe_refine(
-            enabled=prompt_refine_enabled,
-            state=state,
-            tpl_text=self.generate_prompt_tpl,
-            template_data={
-                "theme_color": theme_color,
-                "theme_character": theme_character,
-                "panel_1_title": panel_titles[0],
-                "panel_2_title": panel_titles[1],
-                "panel_3_title": panel_titles[2],
-                "panel_4_title": panel_titles[3],
-            },
-        )
-        edit_prompt_raw, edit_prompt = self._render_and_maybe_refine(
-            enabled=prompt_refine_enabled,
-            state=state,
-            tpl_text=self.edit_prompt_tpl,
-            template_data={
-                "theme_color": theme_color,
-                "theme_character": theme_character,
-            },
-        )
-
-        self._append_tool_call_log(
-            state,
-            {
-                "kind": "decorative_sheet",
-                "server_url": server_url,
-                "icon_size": icon_size,
-                "theme_color": theme_color,
-                "theme_character": theme_character,
-                "panel_titles": panel_titles,
-                "template_generate_prompt": gen_prompt_raw,
-                "template_edit_prompt": edit_prompt_raw,
-                "generate_prompt": gen_prompt,
-                "edit_prompt": edit_prompt,
-            },
-        )
-
-        # 3) Call local server: generate base 2×2 sheet
-        sheet_base_path = self._call_generate(
-            server_url=server_url,
-            prompt=gen_prompt,
-            size=icon_size,
-            out_dir=str(out_dir),
-        )
-
-        # 4) Call local server: edit + remove background (RGBA) on the whole sheet
-        sheet_rgba_path = self._call_edit(
-            server_url=server_url,
-            image_path=sheet_base_path,
-            prompt=edit_prompt,
-            out_dir=str(out_dir),
-            remove_bg=True,
-        )
-
-        sheet_rgba_path = self._ensure_local_copy(sheet_rgba_path, out_dir / "sheet_rgba.png")
-
-        # 5) Split into 4 quadrants (each should be an independent panel)
-        quadrant_paths = self._split_center_quadrants(sheet_rgba_path, out_dir)
-
-        # 6) Assign one quadrant to each chosen section_id
+        # If there are no eligible sections, skip 2×2 sheet generation to avoid wasting calls.
+        quadrant_paths: List[str] = []
         by_section: Dict[str, str] = {}
-        if quadrant_strategy == "random":
-            for sid in chosen_sids:
-                by_section[str(sid)] = random.choice(quadrant_paths)
+        sheet_base_path: Optional[str] = None
+        sheet_rgba_path: Optional[str] = None
+
+        if chosen_sids:
+            # Use up to 4 titles to drive a real 2×2 four-panel generation.
+            panel_sids = chosen_sids[:4] + ([""] * max(0, 4 - len(chosen_sids[:4])))
+            panel_titles = [
+                sid_to_title.get(panel_sids[0], "Research Overview"),
+                sid_to_title.get(panel_sids[1], "Method"),
+                sid_to_title.get(panel_sids[2], "Results"),
+                sid_to_title.get(panel_sids[3], "Analysis"),
+            ]
+
+            # 2) Build prompts for TRUE 2×2 sheet
+            gen_prompt_raw, gen_prompt = self._render_and_maybe_refine(
+                enabled=prompt_refine_enabled,
+                state=state,
+                tpl_text=self.generate_prompt_tpl,
+                template_data={
+                    "theme_color": theme_color,
+                    "theme_character": theme_character,
+                    "panel_1_title": panel_titles[0],
+                    "panel_2_title": panel_titles[1],
+                    "panel_3_title": panel_titles[2],
+                    "panel_4_title": panel_titles[3],
+                },
+            )
+            edit_prompt_raw, edit_prompt = self._render_and_maybe_refine(
+                enabled=prompt_refine_enabled,
+                state=state,
+                tpl_text=self.edit_prompt_tpl,
+                template_data={
+                    "theme_color": theme_color,
+                    "theme_character": theme_character,
+                },
+            )
+
+            self._append_tool_call_log(
+                state,
+                {
+                    "kind": "decorative_sheet",
+                    "server_url": server_url,
+                    "icon_size": icon_size,
+                    "theme_color": theme_color,
+                    "theme_character": theme_character,
+                    "panel_titles": panel_titles,
+                    "target_section_ids": chosen_sids,
+                    "template_generate_prompt": gen_prompt_raw,
+                    "template_edit_prompt": edit_prompt_raw,
+                    "generate_prompt": gen_prompt,
+                    "edit_prompt": edit_prompt,
+                },
+            )
+
+            # 3) Call local server: generate base 2×2 sheet
+            sheet_base_path = self._call_generate(
+                server_url=server_url,
+                prompt=gen_prompt,
+                size=icon_size,
+                out_dir=str(out_dir),
+            )
+
+            # 4) Call local server: edit + remove background (RGBA) on the whole sheet
+            sheet_rgba_path = self._call_edit(
+                server_url=server_url,
+                image_path=sheet_base_path,
+                prompt=edit_prompt,
+                out_dir=str(out_dir),
+                remove_bg=True,
+            )
+
+            sheet_rgba_path = self._ensure_local_copy(sheet_rgba_path, out_dir / "sheet_rgba.png")
+
+            # 5) Split into 4 quadrants (each should be an independent panel)
+            quadrant_paths = self._split_center_quadrants(sheet_rgba_path, out_dir)
+
+            # 6) Assign one quadrant to each chosen section_id
+            if quadrant_strategy == "random":
+                for sid in chosen_sids:
+                    by_section[str(sid)] = random.choice(quadrant_paths)
+            else:
+                # Prefer aligning first four sections to their panel positions for coherence.
+                for i, sid in enumerate(chosen_sids):
+                    by_section[str(sid)] = quadrant_paths[i % len(quadrant_paths)]
         else:
-            # Prefer aligning first four sections to their panel positions for coherence.
-            for i, sid in enumerate(chosen_sids):
-                by_section[str(sid)] = quadrant_paths[i % len(quadrant_paths)]
+            log_agent_warning(self.name, "no eligible (no-visual) sections found; skipping decorative sheet generation")
 
         # 7) Generate full-poster background (second call)
         poster_bg_path = None
